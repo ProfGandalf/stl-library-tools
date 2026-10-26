@@ -18,10 +18,15 @@ Two versions:
   parent folder, kept as an archive. Make new heuristic changes in `app/render_grid.py`.
   - `__RENDER.bat` + `__render_grid.py`: renders model folders as preview sheets
   - `__ZIP.bat`: packs subfolders into ZIP archives
-- **Release:** `.github/workflows/build-app.yml` builds `STL-Tools.exe` and
-  `STL-Tools-linux` with PyInstaller (render script bundled) and updates the
-  `app-latest` release in place, only from `main`. The README links to
-  `releases/latest/download/<file>`, so asset names must not change.
+- **Release:** `.github/workflows/build-app.yml` builds `STL-Tools.exe` (with the icon),
+  `STL-Tools-linux.tar.gz` (folder with the binary, icon, README; keeps the executable
+  bit) and the bare `STL-Tools-linux` with PyInstaller (render script and `app/icon/`
+  bundled), and updates the `app-latest` release in place, only from `main`. The README
+  links to `releases/latest/download/<file>`, so asset names must not change.
+- **Icon:** `app/icon/make_icon.py` draws `icon.png` / `icon.ico` (contact sheet + zipper,
+  simpler drawing at <= 48 px). The app sets it as the window icon; on Linux the
+  single-file build writes `~/.local/share/applications/stl-tools.desktop` and the icon
+  on every start (only if changed), and `className="stl-tools"` matches `StartupWMClass`.
 
 The decisions below apply to the render script in both versions.
 

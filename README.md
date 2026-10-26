@@ -1,4 +1,4 @@
-# STL Library Tools
+# <img src="app/icon/icon.png" width="40" align="top"> STL Library Tools
 
 Tools for a 3D model library (miniatures, STL files). A desktop app that:
 
@@ -16,13 +16,18 @@ Direct links:
 | system | file |
 |---|---|
 | **Windows** | [**STL-Tools.exe**](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools.exe) |
-| Linux | [STL-Tools-linux](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools-linux) (run `chmod +x` after downloading) |
+| Linux | [STL-Tools-linux.tar.gz](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools-linux.tar.gz): extract it, double-click `STL-Tools` in the extracted folder |
 
-It is a single file, with no installation and no Python needed. The only requirement is
+It is one download, with no installation and no Python needed. The only requirement is
 [Blender](https://www.blender.org/download/).
 
 > On first launch Windows may show a SmartScreen warning because the file is not signed.
 > Click **“More info” → “Run anyway”**.
+>
+> On Linux the app adds itself to the applications menu, with its icon, every time it
+> starts. The bare [STL-Tools-linux](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools-linux)
+> file is still available, but a downloaded bare file needs `chmod +x` (or Properties →
+> Permissions → “Allow executing file as program”) before it runs.
 
 ## How to use
 
