@@ -10,6 +10,9 @@ Dwa niezależne skrypty, oba uruchamiane dwuklikiem w folderze nadrzędnym:
 diakrytycznych** — skrypt leci przez `blender --background` w konsoli Windows i ogonki
 się tam sypią.
 
+**Każda wiadomość zaczyna się od imienia użytkownika: „Marcin".** Zawsze pierwsze słowo
+odpowiedzi to „Marcin", bez wyjątków.
+
 ---
 
 ## Jak to działa
