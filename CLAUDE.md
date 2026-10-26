@@ -4,7 +4,8 @@ Narzędzia wsadowe do biblioteki modeli 3D (figurki Warhammer, STL-e od sprzedaw
 Dwie wersje:
 
 - **`app/`**: aktualna, okienkowa aplikacja (tkinter, Windows + Linux). Wybór folderów,
-  render, potem ZIP, paski postępu. Opis jest w `app/README.md`.
+  potok: Blender robi folder N, a w tym czasie osobny wątek pakuje folder N-1 do ZIP.
+  Paski postępu. Opis jest w `app/README.md`.
   - `app/stl_tools.py`: GUI. Tylko biblioteka standardowa, bez zależności.
   - `app/render_grid.py`: skrypt Blendera, który aplikacja uruchamia przez
     `blender --background --python render_grid.py -- --folder X --only nazwa ...`.

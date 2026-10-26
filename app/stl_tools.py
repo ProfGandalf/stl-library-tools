@@ -7,7 +7,8 @@
    2. ZIP    - pakowanie podfolderow do archiwow
 
  Wybierasz folder nadrzedny, zaznaczasz podfoldery, klikasz Start.
- Najpierw leci render wszystkich zaznaczonych, potem pakowanie.
+ Foldery ida potokiem: Blender robi folder 1, potem folder 1 sie pakuje,
+ a w tym czasie Blender robi juz folder 2 - i tak dalej.
 
  Wymaga tylko Pythona 3.8+ z tkinter (na Windows jest w standardzie,
  na Linuksie: pakiet python3-tk) oraz Blendera do renderu.
@@ -393,15 +394,16 @@ class App(tk.Tk):
 
         tf = ttk.Frame(p)
         tf.pack(fill="both", expand=True)
-        cols = ("chk", "name", "models", "png", "zip", "status")
+        cols = ("chk", "name", "models", "png", "zip", "st_render", "st_zip")
         self.tree = ttk.Treeview(tf, columns=cols, show="headings", selectmode="none", height=6)
         for c, txt, w, anchor, stretch in (
                 ("chk", "", 34, "center", False),
-                ("name", "Folder", 300, "w", True),
+                ("name", "Folder", 260, "w", True),
                 ("models", "Modele", 80, "center", False),
-                ("png", "PNG", 60, "center", False),
-                ("zip", "ZIP", 60, "center", False),
-                ("status", "Status", 220, "w", True)):
+                ("png", "PNG", 50, "center", False),
+                ("zip", "ZIP", 50, "center", False),
+                ("st_render", "Render", 170, "w", True),
+                ("st_zip", "Pakowanie", 150, "w", True)):
             self.tree.heading(c, text=txt)
             self.tree.column(c, width=w, anchor=anchor, stretch=stretch)
         self.tree.tag_configure("off", foreground=C_DIM)
@@ -415,12 +417,13 @@ class App(tk.Tk):
         self.tree.bind("<Button-1>", self.on_click)
 
         # --- zadania
-        p = self._panel(root, "Co zrobić (kolejno: 1. render → 2. ZIP)")
+        p = self._panel(root, "Co zrobić — folder po folderze: render, potem ZIP "
+                            "(pakuje się w tle, gdy Blender robi następny)")
         p.pack(side="bottom", fill="x", pady=(0, 8))
         tasks_panel = p
         r1 = ttk.Frame(p)
         r1.pack(fill="x")
-        ttk.Checkbutton(r1, text="1. Render plansz (Blender)", variable=self.var_render).pack(side="left")
+        ttk.Checkbutton(r1, text="Render plansz (Blender)", variable=self.var_render).pack(side="left")
         ttk.Label(r1, text="   rozdzielczość:").pack(side="left")
         ttk.Combobox(r1, textvariable=self.var_res, width=6, state="readonly",
                      values=("1000", "2000", "3000", "4000", "6000", "8000")).pack(side="left", padx=(4, 0))
@@ -430,7 +433,7 @@ class App(tk.Tk):
         ttk.Checkbutton(r1, text="obie strony (A + B)", variable=self.var_both).pack(side="left", padx=(12, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
-        ttk.Checkbutton(r2, text="2. Pakowanie do ZIP", variable=self.var_zip).pack(side="left")
+        ttk.Checkbutton(r2, text="Pakowanie do ZIP", variable=self.var_zip).pack(side="left")
         ttk.Checkbutton(r2, text="nadpisuj istniejące ZIP-y", variable=self.var_overwrite).pack(side="left", padx=(12, 0))
 
         # --- postep
@@ -439,11 +442,21 @@ class App(tk.Tk):
         self.lbl_stage = ttk.Label(p, text="Gotowy.", style="Dim.TLabel")
         self.lbl_stage.pack(anchor="w")
         self.bar_total = FancyBar(p, height=28)
-        self.bar_total.pack(fill="x", pady=(4, 6))
-        self.lbl_item = ttk.Label(p, text="", style="Dim.TLabel")
-        self.lbl_item.pack(anchor="w")
-        self.bar_item = FancyBar(p, height=20)
-        self.bar_item.pack(fill="x", pady=(4, 0))
+        self.bar_total.pack(fill="x", pady=(4, 8))
+        # dwa paski obok siebie - Blender i ZIP pracuja jednoczesnie
+        two = ttk.Frame(p)
+        two.pack(fill="x")
+        two.columnconfigure(0, weight=1, uniform="b")
+        two.columnconfigure(1, weight=1, uniform="b")
+        self.lbl_render = ttk.Label(two, text="Blender: —", style="Dim.TLabel")
+        self.lbl_render.grid(row=0, column=0, sticky="w")
+        self.bar_render = FancyBar(two, height=20)
+        self.bar_render.grid(row=1, column=0, sticky="ew", pady=(4, 0), padx=(0, 6))
+        self.lbl_zip = ttk.Label(two, text="ZIP: —", style="Dim.TLabel")
+        self.lbl_zip.grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.bar_zip = FancyBar(two, height=20)
+        self.bar_zip.grid(row=1, column=1, sticky="ew", pady=(4, 0), padx=(6, 0))
+        self.bars = (self.bar_total, self.bar_render, self.bar_zip)
 
         btns = ttk.Frame(p)
         btns.pack(fill="x", pady=(10, 0))
@@ -530,7 +543,7 @@ class App(tk.Tk):
                     self.checked.add(name)
             models = str(it["models"]) + (" +%d 3MF" % it["mf3"] if it["mf3"] else "")
             self.tree.insert("", "end", iid=name, values=(
-                "", name, models, "✔" if it["png"] else "—", "✔" if it["zip"] else "—", status),
+                "", name, models, "✔" if it["png"] else "—", "✔" if it["zip"] else "—", status, ""),
                 tags=() if selectable else ("off",))
             self._draw_check(name)
         self._update_count()
@@ -574,12 +587,23 @@ class App(tk.Tk):
             self._draw_check(name)
         self._update_count()
 
-    def set_status(self, name, text, tag=None):
-        if self.tree.exists(name):
-            self.tree.set(name, "status", text)
-            self.tree.item(name, tags=(tag,) if tag else ())
-            if tag == "busy":
+    def set_status(self, name, col, text):
+        """col: "st_render" albo "st_zip"; kolor wiersza wynika z obu kolumn"""
+        if not self.tree.exists(name):
+            return
+        self.tree.set(name, col, text)
+        both = self.tree.set(name, "st_render") + " " + self.tree.set(name, "st_zip")
+        if "✖" in both:
+            tag = "err"
+        elif "…" in both:
+            tag = "busy"
+            if col == "st_render":
                 self.tree.see(name)
+        elif "✔" in both or "już jest" in both:
+            tag = "ok"
+        else:
+            tag = None
+        self.tree.item(name, tags=(tag,) if tag else ())
 
     def log_line(self, text, tag=None):
         self.log.configure(state="normal")
@@ -642,14 +666,27 @@ class App(tk.Tk):
             "both": self.var_both.get(),
         }
         for n in names:
-            self.set_status(n, "w kolejce")
+            if n in job["render"]:
+                self.set_status(n, "st_render", "w kolejce")
+            elif do_render:
+                self.set_status(n, "st_render", "—")
+            self.set_status(n, "st_zip", "w kolejce" if do_zip else "")
+        # postep calosci: kazdy folder to suma jego czesci (render ma wieksza wage)
+        self.parts = {}
+        for n in names:
+            r, z = n in job["render"], n in job["zip"]
+            w_r = (0.85 if z else 1.0) if r else 0.0
+            self.parts[n] = {"w_r": w_r, "w_z": 1.0 - w_r if z else 0.0, "r": 0.0, "z": 0.0}
+        self.t0 = time.time()
         self.cancel.clear()
         self.btn_start.configure(state="disabled")
         self.btn_stop.configure(state="normal")
-        self.bar_total.error = self.bar_item.error = False
-        self.bar_total.running = self.bar_item.running = True
-        self.bar_total.set(0, "")
-        self.bar_item.set(0, "")
+        for b in self.bars:
+            b.error = False
+            b.running = True
+            b.set(0, "")
+        self.lbl_render.configure(text="Blender: —" if job["render"] else "Blender: wyłączony")
+        self.lbl_zip.configure(text="ZIP: —" if job["zip"] else "ZIP: wyłączony")
         self.worker = threading.Thread(target=self._run, args=(job,), daemon=True)
         self.worker.start()
 
@@ -678,27 +715,46 @@ class App(tk.Tk):
         self.events.put(ev)
 
     def _run(self, job):
-        stages = [s for s in ("render", "zip") if job[s]]
+        """Potok: Blender robi foldery po kolei, a kazdy skonczony folder
+        od razu trafia do kolejki ZIP. Pakowanie leci w osobnym watku,
+        wiec folder 1 sie pakuje, kiedy Blender juz robi folder 2."""
         results = {"render": [0, 0], "zip": [0, 0, 0]}
         t0 = time.time()
+        zip_q = queue.Queue()
+        zipper = None
+        sent = set()
+
+        def to_zip(name):
+            if name in job["zip"] and name not in sent:
+                sent.add(name)
+                zip_q.put(name)
+
+        if job["zip"]:
+            zipper = threading.Thread(target=self._zip_worker,
+                                      args=(job, zip_q, results["zip"]), daemon=True)
+            zipper.start()
         try:
-            for si, stage in enumerate(stages, 1):
-                if self.cancel.is_set():
-                    break
-                label = "Render" if stage == "render" else "ZIP"
-                self.emit("stage", si, len(stages), label)
-                if stage == "render":
-                    self._run_render(job, results["render"])
-                else:
-                    self._run_zip(job, results["zip"])
+            # foldery, ktorych Blender nie robi (bez modeli / render wylaczony)
+            # nie maja na co czekac - od razu do pakowania
+            for n in job["zip"]:
+                if n not in job["render"]:
+                    to_zip(n)
+            if job["render"]:
+                self._run_render(job, results["render"], to_zip)
+            # Blender skonczyl (albo padl) - reszta i tak idzie do ZIP
+            if not self.cancel.is_set():
+                for n in job["zip"]:
+                    to_zip(n)
         except Exception as e:
             self.emit("log", "!!! Błąd: %s" % e, "err")
-        self.emit("finished", results, time.time() - t0, self.cancel.is_set(), stages)
+        if zipper:
+            zip_q.put(None)         # koniec kolejki
+            zipper.join()
+        self.emit("finished", results, time.time() - t0, self.cancel.is_set(),
+                  bool(job["render"]), bool(job["zip"]))
 
-    def _run_render(self, job, res):
+    def _run_render(self, job, res, on_done):
         names = job["render"]
-        if not names:
-            return
         cmd = [job["blender"], "--background", "--python", RENDER_SCRIPT, "--",
                "--folder", job["folder"], "--res", job["res"], "--samples", job["samples"]]
         if not job["both"]:
@@ -731,9 +787,7 @@ class App(tk.Tk):
                 frac = 0.2 + 0.8 * (rend + samp) / sides
                 side = ("strona A" if rend == 0 else "strona B") if sides == 2 else "render"
                 txt = "%s — %d%%" % (side, samp * 100)
-            self.emit("item", cur, frac, txt)
-            self.emit("total", ((idx - 1) + frac) / max(1, total),
-                      "%d / %d folderów" % (idx - 1, total))
+            self.emit("prog", "r", cur, frac, "Blender [%d/%d]: %s" % (idx, total, cur), txt)
 
         for raw in self.proc.stdout:
             line = raw.decode("utf-8", errors="replace").rstrip()
@@ -746,8 +800,8 @@ class App(tk.Tk):
                     idx = int(parts[1])
                     cur = parts[2] if len(parts) > 2 else "?"
                     imp, rend, samp = 0.0, -1, 0.0
-                    self.emit("status", cur, "render…", "busy")
-                    self.emit("log", "── [%d/%d] %s" % (idx, total, cur), "head")
+                    self.emit("status", cur, "st_render", "renderuje…")
+                    self.emit("log", "── Blender [%d/%d] %s" % (idx, total, cur), "head")
                 elif kind == "IMPORT":
                     imp = int(parts[1]) / max(1, int(parts[2]))
                 elif kind == "RENDER":
@@ -759,11 +813,11 @@ class App(tk.Tk):
                     # gdy nic sie nie zaimportowalo; liczy sie swiezy PNG na dysku
                     ok = parts[1] == "ok" and self._fresh_png(job["folder"], name, t_start)
                     res[0 if ok else 1] += 1
-                    self.emit("status", name, "render ✔" if ok else "render ✖ błąd",
-                              "ok" if ok else "err")
+                    self.emit("status", name, "st_render", "✔ gotowe" if ok else "✖ błąd")
                     self.emit("rowflag", name, "png", ok)
-                    self.emit("total", idx / max(1, total), "%d / %d folderów" % (idx, total))
+                    self.emit("prog", "r", name, 1.0, "Blender: czeka na następny", "")
                     cur = None
+                    on_done(name)
                 push()
                 continue
             m = SAMPLE_RE.search(line)
@@ -786,12 +840,10 @@ class App(tk.Tk):
         if cur and not self.cancel.is_set():
             # Blender padl w trakcie folderu
             res[1] += 1
-            self.emit("status", cur, "render ✖ Blender przerwał", "err")
+            self.emit("status", cur, "st_render", "✖ Blender przerwał")
         if code != 0 and not self.cancel.is_set():
             self.emit("log", "!!! Blender zakończył się kodem %s" % code, "err")
-        if self.cancel.is_set():
-            for n in names:
-                self.emit("status_if_queued", n, "przerwano")
+        self.emit("prog", "r", None, 1.0, "Blender: skończył", "")
 
     @staticmethod
     def _fresh_png(parent, name, since):
@@ -801,41 +853,46 @@ class App(tk.Tk):
                 return True
         return False
 
-    def _run_zip(self, job, res):
+    def _zip_worker(self, job, zip_q, res):
+        """Osobny watek: pakuje foldery w kolejnosci, w jakiej Blender je oddaje."""
         parent = job["folder"]
-        names = job["zip"]
-        total = len(names)
-        for i, name in enumerate(names):
+        total = len(job["zip"])
+        k = 0
+        while True:
+            self.emit("prog", "z", None, 0.0, "ZIP: czeka na folder z Blendera", "")
+            name = zip_q.get()
+            if name is None:
+                break
+            k += 1
             if self.cancel.is_set():
-                self.emit("status_if_queued", name, "przerwano")
                 continue
-            self.emit("total", i / total, "%d / %d folderów" % (i, total))
-            src = os.path.join(parent, name)
+            label = "ZIP [%d/%d]: %s" % (k, total, name)
             dst = os.path.join(parent, name + ".zip")
             if os.path.exists(dst) and not job["overwrite"]:
                 res[1] += 1
-                self.emit("status", name, "ZIP już jest", "ok")
-                self.emit("log", "[=] już jest: %s.zip" % name)
+                self.emit("status", name, "st_zip", "już jest")
+                self.emit("prog", "z", name, 1.0, label, "już jest")
+                self.emit("log", "[=] ZIP już jest: %s.zip" % name)
                 continue
-            self.emit("status", name, "pakowanie…", "busy")
+            self.emit("status", name, "st_zip", "pakuje…")
             self.emit("log", "[+] pakuję: %s" % name)
             try:
-                done = self._zip_one(parent, name, src, dst, i, total)
+                done = self._zip_one(parent, name, os.path.join(parent, name), dst, label)
             except Exception as e:
                 done = False
                 self.emit("log", "    [BŁĄD] %s: %s" % (name, e), "err")
             if done:
                 res[0] += 1
-                self.emit("status", name, "ZIP ✔", "ok")
+                self.emit("status", name, "st_zip", "✔ gotowe")
                 self.emit("rowflag", name, "zip", True)
             elif self.cancel.is_set():
-                self.emit("status", name, "przerwano")
+                self.emit("status", name, "st_zip", "przerwano")
             else:
                 res[2] += 1
-                self.emit("status", name, "ZIP ✖ błąd", "err")
-        self.emit("total", 1.0 if not self.cancel.is_set() else 0, "%d / %d folderów" % (total, total))
+                self.emit("status", name, "st_zip", "✖ błąd")
+        self.emit("prog", "z", None, 1.0, "ZIP: skończył", "")
 
-    def _zip_one(self, parent, name, src, dst, i, total):
+    def _zip_one(self, parent, name, src, dst, label):
         # lista plikow z rozmiarami - postep liczony po bajtach
         entries = []
         for root, dirs, files in os.walk(src):
@@ -879,14 +936,12 @@ class App(tk.Tk):
                             if now - last > 0.1:
                                 last = now
                                 frac = done_bytes / total_bytes
-                                self.emit("item", name, frac, "%d%% — %.0f / %.0f MB" % (
+                                self.emit("prog", "z", name, frac, label, "%d%% — %.0f / %.0f MB" % (
                                     frac * 100, done_bytes / 1e6, total_bytes / 1e6))
-                                self.emit("total", (i + frac) / total,
-                                          "%d / %d folderów" % (i, total))
                             if self.cancel.is_set():
                                 raise InterruptedError
             os.replace(tmp, dst)
-            self.emit("item", name, 1.0, "gotowe")
+            self.emit("prog", "z", name, 1.0, label, "gotowe")
             return True
         except InterruptedError:
             return False
@@ -908,37 +963,38 @@ class App(tk.Tk):
         self._update_eta()
         self.after(80, self._poll)
 
+    def _overall(self):
+        """(ulamek calosci, ile folderow w pelni skonczonych)"""
+        if not self.parts:
+            return 0.0, 0
+        frac = done = 0
+        for p in self.parts.values():
+            f = p["w_r"] * p["r"] + p["w_z"] * p["z"]
+            frac += f
+            done += f >= 0.999
+        return frac / len(self.parts), done
+
     def _handle(self, ev):
         kind = ev[0]
         if kind == "log":
             self.log_line(ev[1], ev[2] if len(ev) > 2 else None)
-        elif kind == "stage":
-            _, si, n, label = ev
-            self.stage_text = "Etap %d z %d: %s" % (si, n, label)
-            self.stage_t0 = time.time()
-            self.stage_frac = 0.0
-            self.lbl_stage.configure(text=self.stage_text)
-            self.bar_total.set(0, "")
-            self.bar_item.set(0, "")
-            self.lbl_item.configure(text="")
-            self.log_line("═══ " + self.stage_text + " ═══", "head")
-        elif kind == "total":
-            self.stage_frac = ev[1]
-            self.bar_total.set(ev[1], "%s  ·  %d%%" % (ev[2], round(ev[1] * 100)))
-        elif kind == "item":
-            _, name, frac, txt = ev
-            self.lbl_item.configure(text="Bieżący: " + name)
-            self.bar_item.set(frac, txt)
+        elif kind == "prog":
+            _, which, name, frac, label, txt = ev
+            if which == "r":
+                self.lbl_render.configure(text=label)
+                self.bar_render.set(frac if name else 0, txt)
+                if not name:
+                    self.bar_render.running = False
+            else:
+                self.lbl_zip.configure(text=label)
+                self.bar_zip.set(frac if name else 0, txt)
+            if name in self.parts:
+                self.parts[name][which] = max(self.parts[name][which], frac)
+                total, done = self._overall()
+                self.bar_total.set(total, "%d / %d folderów gotowych  ·  %d%%" % (
+                    done, len(self.parts), round(total * 100)))
         elif kind == "status":
-            # blad renderu nie moze zniknac pod statusem ZIP
-            name, text, tag = ev[1], ev[2], ev[3] if len(ev) > 3 else None
-            prev = self.tree.set(name, "status") if self.tree.exists(name) else ""
-            if prev.startswith("render ✖") and not text.startswith("render"):
-                text, tag = prev.split(" · ")[0] + " · " + text, "err"
-            self.set_status(name, text, tag)
-        elif kind == "status_if_queued":
-            if self.tree.exists(ev[1]) and self.tree.set(ev[1], "status") in ("w kolejce", "render…", "pakowanie…"):
-                self.set_status(ev[1], ev[2])
+            self.set_status(ev[1], ev[2], ev[3])
         elif kind == "rowflag":
             _, name, col, val = ev
             if val and name in self.rows:
@@ -948,29 +1004,31 @@ class App(tk.Tk):
             self._finished(*ev[1:])
 
     def _update_eta(self):
-        if not self.worker or not hasattr(self, "stage_t0"):
+        if not self.worker:
             return
-        el = time.time() - self.stage_t0
-        frac = getattr(self, "stage_frac", 0.0)
-        txt = "%s   ·   minęło %s" % (self.stage_text, fmt_time(el))
+        el = time.time() - self.t0
+        frac, _ = self._overall()
+        txt = "Pracuję   ·   minęło %s" % fmt_time(el)
         if 0.02 < frac < 1.0 and el > 5:
             txt += "   ·   zostało ok. %s" % fmt_time(el * (1 - frac) / frac)
         self.lbl_stage.configure(text=txt)
 
-    def _finished(self, results, elapsed, cancelled, stages):
+    def _finished(self, results, elapsed, cancelled, did_render, did_zip):
         self.worker = None
         self.btn_start.configure(state="normal")
         self.btn_stop.configure(state="disabled")
-        self.bar_total.running = self.bar_item.running = False
-        if cancelled:
-            for n in self.rows:
-                if self.tree.set(n, "status") in ("w kolejce", "render…", "pakowanie…"):
-                    self.set_status(n, "przerwano")
+        for b in self.bars:
+            b.running = False
+        busy = ("w kolejce", "renderuje…", "pakuje…")
+        for n in self.rows:
+            for col in ("st_render", "st_zip"):
+                if self.tree.set(n, col) in busy:
+                    self.set_status(n, col, "przerwano")
         parts = []
         r, z = results["render"], results["zip"]
-        if "render" in stages:
+        if did_render:
             parts.append("render: %d ok%s" % (r[0], ", %d błędów" % r[1] if r[1] else ""))
-        if "zip" in stages:
+        if did_zip:
             parts.append("ZIP: %d spakowano, %d pominięto%s" % (
                 z[0], z[1], ", %d błędów" % z[2] if z[2] else ""))
         summary = " · ".join(parts)
@@ -983,11 +1041,9 @@ class App(tk.Tk):
             self.bar_total.error = True
         else:
             head = "Zakończono"
-            self.bar_total.set(1.0)
+            self.bar_total.value = 1.0
         self.bar_total.set(self.bar_total.value, "%s — %s" % (head, summary))
-        self.bar_item.set(0 if cancelled else self.bar_item.value, "")
         self.lbl_stage.configure(text="%s w %s" % (head, fmt_time(elapsed)))
-        self.lbl_item.configure(text="")
         self.log_line("═══ %s (%s): %s ═══" % (head, fmt_time(elapsed), summary),
                       "err" if errors or cancelled else "ok")
         self.bell()
