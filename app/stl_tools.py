@@ -35,6 +35,9 @@ import tkinter.font as tkfont
 # to the temporary folder sys._MEIPASS while the program runs
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 RENDER_SCRIPT = os.path.join(APP_DIR, "render_grid.py")
+ICON_PNG = os.path.join(APP_DIR, "icon", "icon.png")
+ICON_ICO = os.path.join(APP_DIR, "icon", "icon.ico")
+APP_ID = "stl-tools"      # WM_CLASS on Linux, .desktop / icon name
 
 # same extensions as in render_grid.py
 MODEL_EXTS = ('.stl', '.obj', '.ply', '.fbx', '.glb', '.gltf')
@@ -139,6 +142,53 @@ def find_blender():
         if os.path.isfile(c):
             return c
     return None
+
+
+# ======================= Linux menu integration =========================
+
+def install_desktop_entry():
+    """Linux, single-file build only: adds the app to the applications menu
+    (~/.local/share/applications) with its icon, pointing at this binary.
+    Rewritten only when something changed, e.g. the binary was moved."""
+    if not getattr(sys, "frozen", False) or not sys.platform.startswith("linux"):
+        return
+    try:
+        data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+        icon_dst = os.path.join(data, "icons", "hicolor", "256x256", "apps", APP_ID + ".png")
+        desktop = os.path.join(data, "applications", APP_ID + ".desktop")
+        exe = sys.executable.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+        entry = ("[Desktop Entry]\n"
+                 "Type=Application\n"
+                 "Name=STL Library Tools\n"
+                 "Comment=Render preview sheets of 3D models and pack folders into ZIP\n"
+                 'Exec="%s"\n'
+                 "Icon=%s\n"
+                 "Terminal=false\n"
+                 "Categories=Graphics;Utility;\n"
+                 "StartupWMClass=%s\n") % (exe, APP_ID, APP_ID)
+        if os.path.isfile(ICON_PNG):
+            with open(ICON_PNG, "rb") as f:
+                new_icon = f.read()
+            try:
+                with open(icon_dst, "rb") as f:
+                    same = f.read() == new_icon
+            except OSError:
+                same = False
+            if not same:
+                os.makedirs(os.path.dirname(icon_dst), exist_ok=True)
+                with open(icon_dst, "wb") as f:
+                    f.write(new_icon)
+        try:
+            with open(desktop, encoding="utf-8") as f:
+                if f.read() == entry:
+                    return
+        except OSError:
+            pass
+        os.makedirs(os.path.dirname(desktop), exist_ok=True)
+        with open(desktop, "w", encoding="utf-8") as f:
+            f.write(entry)
+    except Exception:
+        pass        # the menu entry is a nicety - never block the app over it
 
 
 # ============================ folder scan ===============================
@@ -267,8 +317,10 @@ def fmt_time(sec):
 
 class App(tk.Tk):
     def __init__(self):
-        super().__init__()
+        # className sets WM_CLASS on Linux, so the taskbar matches the menu entry
+        super().__init__(className=APP_ID)
         self.title("STL Library Tools")
+        self._set_icon()
         # tall, so the folder list is long - but not taller than the screen
         self.geometry("1000x%d" % min(900, self.winfo_screenheight() - 80))
         self.minsize(820, 640)
@@ -298,6 +350,15 @@ class App(tk.Tk):
         self.after(100, self._poll)
         if self.var_folder.get():
             self.refresh()
+
+    def _set_icon(self):
+        try:
+            self._icon = tk.PhotoImage(file=ICON_PNG)     # keep a reference
+            self.iconphoto(True, self._icon)
+            if IS_WIN:
+                self.iconbitmap(default=ICON_ICO)
+        except Exception:
+            pass
 
     # ---------------------------------------------------------- styling
     def _style(self):
@@ -1082,6 +1143,14 @@ class App(tk.Tk):
 
 
 def main():
+    if IS_WIN:
+        # own taskbar identity, otherwise running from source shows the Python icon
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except Exception:
+            pass
+    install_desktop_entry()
     app = App()
     app.mainloop()
 

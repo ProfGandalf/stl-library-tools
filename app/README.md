@@ -9,7 +9,9 @@ Desktop version of the two scripts in `Scripts - version 1`: rendering preview s
 
 In the repository open **Releases → “STL Tools (latest version)”** and download:
 - **Windows:** `STL-Tools.exe`, then double-click it.
-- **Linux:** `STL-Tools-linux`, then `chmod +x STL-Tools-linux` and run it.
+- **Linux:** `STL-Tools-linux.tar.gz`, extract it and double-click `STL-Tools` in the
+  extracted folder. The archive keeps the run permission. On start the app adds itself to
+  the applications menu with its icon (`~/.local/share/applications/stl-tools.desktop`).
 
 The file is built automatically (GitHub Actions, `.github/workflows/build-app.yml`) after
 every change in `app/` on `main`, with the Blender script bundled inside. On first launch
@@ -59,6 +61,7 @@ Settings (paths, options) are saved automatically:
 | `stl_tools.py` | the app (tkinter, standard library only) |
 | `render_grid.py` | Blender script: same as version 1, plus arguments and `@@` progress lines |
 | `STL Tools.bat` / `stl_tools.sh` | launchers |
+| `icon/` | app icon (`icon.png`, `icon.ico`) and `make_icon.py`, which draws it (needs Pillow) |
 
 All render settings other than resolution, quality and A/B (orientation, `ROTATIONS`,
 colours, etc.) are still at the top of `render_grid.py`.

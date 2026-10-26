@@ -1,5 +1,8 @@
 # Builds the app from app/ as ONE downloadable file:
-#   STL-Tools.exe  (Windows)   STL-Tools-linux  (Linux)
+#   STL-Tools.exe  (Windows, with the app icon)
+#   STL-Tools-linux.tar.gz  (Linux: STL-Tools/ folder with the program and its
+#                            icon; the archive keeps the executable permission)
+#   STL-Tools-linux  (Linux, bare file, kept so old links keep working)
 # The "app-latest" release (Releases) is updated only from the main branch -
 # on other branches the files stay as artifacts of the Actions run.
 # render_grid.py is bundled inside - nothing else needs to be downloaded.
@@ -21,9 +24,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            out: STL-Tools.exe
+            name: windows
+            icon: --icon app/icon/icon.ico
           - os: ubuntu-22.04
-            out: STL-Tools-linux
+            name: linux
+            icon: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -33,16 +38,30 @@ jobs:
       - name: Check syntax
         run: python -m py_compile app/stl_tools.py app/render_grid.py
       - name: PyInstaller
+        shell: bash     # the default on Windows is PowerShell, which breaks "\" line continuations
         run: |
           python -m pip install --upgrade pip pyinstaller==6.11.1
-          pyinstaller --onefile --windowed --name STL-Tools --add-data "app/render_grid.py:." app/stl_tools.py
-      - name: Linux file name
+          pyinstaller --onefile --windowed --name STL-Tools ${{ matrix.icon }} \
+            --add-data "app/render_grid.py:." --add-data "app/icon:icon" app/stl_tools.py
+      - name: Linux package
         if: runner.os == 'Linux'
-        run: mv dist/STL-Tools dist/STL-Tools-linux
+        run: |
+          mkdir -p pkg/STL-Tools
+          cp dist/STL-Tools pkg/STL-Tools/STL-Tools
+          cp app/icon/icon.png pkg/STL-Tools/icon.png
+          printf '%s\n' \
+            "STL Library Tools" \
+            "" \
+            "Double-click STL-Tools to start it. On start it adds itself to the" \
+            "applications menu (with its icon). If you move this folder, start" \
+            "STL-Tools once from the new place and the menu entry follows it." \
+            "Needs Blender: https://www.blender.org/download/" > pkg/STL-Tools/README.txt
+          tar -C pkg -czf dist/STL-Tools-linux.tar.gz STL-Tools
+          mv dist/STL-Tools dist/STL-Tools-linux
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.out }}
-          path: dist/${{ matrix.out }}
+          name: ${{ matrix.name }}
+          path: dist/
 
   release:
     needs: build
@@ -69,16 +88,17 @@ jobs:
         run: |
           set -euo pipefail
           TAG=app-latest
-          NOTES="Built from branch ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: download STL-Tools.exe and run it. Linux: STL-Tools-linux (chmod +x). Python is not needed, Blender is."
+          FILES="STL-Tools.exe STL-Tools-linux.tar.gz STL-Tools-linux"
+          NOTES="Built from branch ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: download STL-Tools.exe and run it. Linux: download STL-Tools-linux.tar.gz, extract it and double-click STL-Tools (it adds itself to the applications menu). Python is not needed, Blender is."
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" out/STL-Tools.exe out/STL-Tools-linux \
+            gh release create "$TAG" $(for f in $FILES; do echo "out/$f"; done) \
               --target "$GITHUB_SHA" --latest \
               --title "STL Tools (latest version)" --notes "$NOTES"
             exit 0
           fi
 
-          for f in STL-Tools.exe STL-Tools-linux; do
+          for f in $FILES; do
             cp "out/$f" "out/new-$f"
             gh release upload "$TAG" "out/new-$f" --clobber
             old=$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$f\") | .id")
