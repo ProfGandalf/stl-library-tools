@@ -30,7 +30,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import tkinter.font as tkfont
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+# spakowany do jednego pliku (PyInstaller): render_grid.py jest rozpakowany
+# do folderu tymczasowego sys._MEIPASS na czas dzialania programu
+APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 RENDER_SCRIPT = os.path.join(APP_DIR, "render_grid.py")
 
 # takie same rozszerzenia jak w render_grid.py

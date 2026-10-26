@@ -5,6 +5,19 @@ Okienkowa wersja dwóch skryptów z `Scripts - version 1`: render plansz pogląd
 
 ## Uruchamianie
 
+### Najprościej: jeden plik, bez Pythona
+
+W repozytorium wejdź w **Releases → „STL Tools (najnowsza wersja)”** i pobierz:
+- **Windows:** `STL-Tools.exe`, potem dwuklik.
+- **Linux:** `STL-Tools-linux`, potem `chmod +x STL-Tools-linux` i uruchom.
+
+Plik buduje się automatycznie (GitHub Actions, `.github/workflows/build-app.yml`) po każdej
+zmianie w `app/`, a skrypt Blendera jest zaszyty w środku. Windows może przy pierwszym
+uruchomieniu pokazać ostrzeżenie SmartScreen, bo plik nie jest podpisany. Wtedy kliknij
+„Więcej informacji → Uruchom mimo to”.
+
+### Z plików źródłowych (wymaga Pythona)
+
 - **Windows:** dwuklik na `STL Tools.bat`.
   Potrzebny Python 3 z [python.org](https://www.python.org/downloads/) (tkinter jest w standardzie).
 - **Linux:** `./stl_tools.sh`.
