@@ -48,18 +48,48 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # dwa szybkie scalenia nie moga podmieniac plikow jednoczesnie
+    concurrency:
+      group: release-app-latest
+      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
       - name: Wydanie app-latest
+        # Wydanie NIE jest usuwane i tworzone od nowa - wtedy przez chwile linki
+        # releases/latest/download/... dawaly 404. Pliki sa podmieniane na miejscu:
+        # nowy plik wgrywany pod tymczasowa nazwa, stary usuwany, nowy przemianowany
+        # (przerwa trwa ulamek sekundy zamiast czasu calego wgrywania).
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release delete app-latest --cleanup-tag --yes || true
-          gh release create app-latest out/STL-Tools.exe out/STL-Tools-linux \
-            --target "$GITHUB_SHA" --latest \
-            --title "STL Tools (najnowsza wersja)" \
-            --notes "Zbudowane z galezi ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: pobierz STL-Tools.exe i uruchom. Linux: STL-Tools-linux (chmod +x). Python nie jest potrzebny, Blender tak."
+          set -euo pipefail
+          TAG=app-latest
+          NOTES="Zbudowane z galezi ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: pobierz STL-Tools.exe i uruchom. Linux: STL-Tools-linux (chmod +x). Python nie jest potrzebny, Blender tak."
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" out/STL-Tools.exe out/STL-Tools-linux \
+              --target "$GITHUB_SHA" --latest \
+              --title "STL Tools (najnowsza wersja)" --notes "$NOTES"
+            exit 0
+          fi
+
+          for f in STL-Tools.exe STL-Tools-linux; do
+            cp "out/$f" "out/new-$f"
+            gh release upload "$TAG" "out/new-$f" --clobber
+            old=$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq ".assets[] | select(.name == \"$f\") | .id")
+            new=$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq ".assets[] | select(.name == \"new-$f\") | .id")
+            if [ -n "$old" ]; then
+              gh api -X DELETE "repos/$GH_REPO/releases/assets/$old"
+            fi
+            gh api -X PATCH "repos/$GH_REPO/releases/assets/$new" -f name="$f" >/dev/null
+          done
+
+          # tag wskazuje na commit, z ktorego zbudowano pliki (kosmetyka -
+          # gdyby GitHub odmowil, pliki i tak sa juz podmienione)
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null \
+            || echo "::warning::Nie udalo sie przesunac tagu $TAG na $GITHUB_SHA"
+          gh release edit "$TAG" --latest --notes "$NOTES"
