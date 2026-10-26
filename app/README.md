@@ -34,7 +34,14 @@ The app can live anywhere. It does not need to be copied into the models folder.
    *All*, *None*, *Without PNG* (only those without a sheet), *Without ZIP*.
    `Stare`, `Robocze` and `Do sprawdzenia` are unticked by default, and folders
    starting with `_` are always skipped.
-4. Choose what to do: render, ZIP or both. Folders go one by one: Blender renders
+4. Choose what to do: render, ZIP or both. Both "overwrite" options are ticked by default:
+   - **overwrite existing PNGs** off: a folder that already has its sheet(s)
+     (`name_A.png` + `name_B.png`, or `name.png` for one side) is not sent to Blender
+     at all, so there is no import and no render. It is still zipped.
+   - **overwrite existing ZIPs** on: the new archive is written next to the old one and
+     replaces it only once it is complete. Off: folders that already have a ZIP are skipped.
+
+   Folders go one by one: Blender renders
    folder 1, and when it is done, folder 1 is zipped while Blender already renders
    folder 2, and so on. Folders without models are zipped right away.
 5. **Start.** The top bar shows overall progress and the estimated time left. Below it
