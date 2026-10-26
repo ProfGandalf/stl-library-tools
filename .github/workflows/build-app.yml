@@ -1,8 +1,8 @@
-# Buduje aplikacje z app/ jako JEDEN plik do pobrania:
+# Builds the app from app/ as ONE downloadable file:
 #   STL-Tools.exe  (Windows)   STL-Tools-linux  (Linux)
-# Wydanie "app-latest" (Releases) jest podmieniane tylko z galezi main -
-# na innych galeziach pliki zostaja jako artefakty przebiegu w Actions.
-# render_grid.py jest zaszyty w srodku - nic wiecej nie trzeba pobierac.
+# The "app-latest" release (Releases) is updated only from the main branch -
+# on other branches the files stay as artifacts of the Actions run.
+# render_grid.py is bundled inside - nothing else needs to be downloaded.
 name: Build app
 
 on:
@@ -30,13 +30,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Sprawdz skladnie
+      - name: Check syntax
         run: python -m py_compile app/stl_tools.py app/render_grid.py
       - name: PyInstaller
         run: |
           python -m pip install --upgrade pip pyinstaller==6.11.1
           pyinstaller --onefile --windowed --name STL-Tools --add-data "app/render_grid.py:." app/stl_tools.py
-      - name: Nazwa pliku Linux
+      - name: Linux file name
         if: runner.os == 'Linux'
         run: mv dist/STL-Tools dist/STL-Tools-linux
       - uses: actions/upload-artifact@v4
@@ -48,7 +48,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # dwa szybkie scalenia nie moga podmieniac plikow jednoczesnie
+    # two quick merges must not replace the files at the same time
     concurrency:
       group: release-app-latest
       cancel-in-progress: false
@@ -57,23 +57,24 @@ jobs:
         with:
           path: out
           merge-multiple: true
-      - name: Wydanie app-latest
-        # Wydanie NIE jest usuwane i tworzone od nowa - wtedy przez chwile linki
-        # releases/latest/download/... dawaly 404. Pliki sa podmieniane na miejscu:
-        # nowy plik wgrywany pod tymczasowa nazwa, stary usuwany, nowy przemianowany
-        # (przerwa trwa ulamek sekundy zamiast czasu calego wgrywania).
+      - name: Release app-latest
+        # The release is NOT deleted and recreated - that made the
+        # releases/latest/download/... links return 404 for a while. Files are
+        # replaced in place: the new file is uploaded under a temporary name,
+        # the old one deleted, the new one renamed (the gap is a fraction of a
+        # second instead of the whole upload).
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           TAG=app-latest
-          NOTES="Zbudowane z galezi ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: pobierz STL-Tools.exe i uruchom. Linux: STL-Tools-linux (chmod +x). Python nie jest potrzebny, Blender tak."
+          NOTES="Built from branch ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: download STL-Tools.exe and run it. Linux: STL-Tools-linux (chmod +x). Python is not needed, Blender is."
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" out/STL-Tools.exe out/STL-Tools-linux \
               --target "$GITHUB_SHA" --latest \
-              --title "STL Tools (najnowsza wersja)" --notes "$NOTES"
+              --title "STL Tools (latest version)" --notes "$NOTES"
             exit 0
           fi
 
@@ -88,8 +89,8 @@ jobs:
             gh api -X PATCH "repos/$GH_REPO/releases/assets/$new" -f name="$f" >/dev/null
           done
 
-          # tag wskazuje na commit, z ktorego zbudowano pliki (kosmetyka -
-          # gdyby GitHub odmowil, pliki i tak sa juz podmienione)
+          # the tag points at the commit the files were built from (cosmetic -
+          # if GitHub refuses, the files are already replaced anyway)
           gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null \
-            || echo "::warning::Nie udalo sie przesunac tagu $TAG na $GITHUB_SHA"
-          gh release edit "$TAG" --latest --notes "$NOTES"
+            || echo "::warning::Could not move tag $TAG to $GITHUB_SHA"
+          gh release edit "$TAG" --latest --title "STL Tools (latest version)" --notes "$NOTES"

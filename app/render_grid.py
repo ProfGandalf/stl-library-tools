@@ -1,28 +1,28 @@
 """
 ==========================================================================
- RENDER GRID - podglad kolekcji modeli 3D na jednej planszy (Blender 4.x)
+ RENDER GRID - preview a collection of 3D models on one contact sheet
 ==========================================================================
- Importuje wszystkie modele z folderu, ustawia je w rowna siatke,
- nadaje jednolity matowy material (clay), ustawia miekkie swiatlo
- i kamere izometryczna, po czym renderuje jeden duzy obraz w wysokiej
- rozdzielczosci. Dobre do pokazania duzej ilosci czesci figurek.
+ Imports every model in a folder, lays them out in a tidy grid, gives
+ them a uniform matte (clay) material, sets up soft lighting and a
+ camera, then renders one large high-resolution image. Handy for
+ showing a large number of miniature parts at a glance.
 
- WERSJA DLA APLIKACJI (app/stl_tools.py). Aplikacja uruchamia ten plik:
-   blender --background --python render_grid.py -- --folder X [--only nazwa]...
-   i czyta z konsoli linie zaczynajace sie od "@@" (postep). Recznie da sie
-   go odpalic tak samo jak wersje 1 - bez argumentow dziala identycznie.
+ APP VERSION (app/stl_tools.py). The app runs this file as:
+   blender --background --python render_grid.py -- --folder X [--only name]...
+   and reads console lines starting with "@@" (progress). It can also be
+   run by hand exactly like version 1 - without arguments it behaves the same.
 
- JAK UZYWAC (recznie, z Blendera):
-   1. Otworz Blendera (najlepiej 4.x). Zamknij domyslna scene nie trzeba -
-      skrypt sam ja czysci.
-   2. Zakladka "Scripting" -> New -> wklej ten plik (albo Open i wskaz go).
-   3. Zmien ponizej FOLDER na sciezke do swojego folderu z modelami.
-   4. Nacisnij "Run Script" (Alt+P). Gotowy obraz zapisze sie do OUTPUT.
+ HOW TO USE (by hand, from Blender):
+   1. Open Blender (4.x or newer). No need to clear the default scene -
+      the script does that itself.
+   2. "Scripting" tab -> New -> paste this file (or Open and pick it).
+   3. Set FOLDER below to the path of your models folder.
+   4. Press "Run Script" (Alt+P). The finished image is saved to OUTPUT.
 
- Obsluguje: STL, OBJ, PLY, FBX, GLB/GLTF.
- UWAGA 3MF: Blender nie importuje 3MF natywnie. Najprosciej wyeksportuj
- te pliki do STL ze slicera (Bambu/Prusa/Chitubox). Skrypt pominie 3MF
- i wypisze liste pominietych plikow w konsoli.
+ Supported: STL, OBJ, PLY, FBX, GLB/GLTF.
+ NOTE ON 3MF: Blender does not import 3MF natively. The easiest fix is to
+ export those files to STL from your slicer (Bambu/Prusa/Chitubox). The
+ script skips 3MF files and lists them in the console.
 ==========================================================================
 """
 
@@ -38,43 +38,44 @@ try:
 except Exception:
     HAS_NUMPY = False
 
-# ========================== USTAWIENIA ==================================
+# ============================ SETTINGS ==================================
 
-# Zostaw FOLDER = "" -> skrypt uzyje folderu, w ktorym sam lezy.
-# (dzieki temu wystarczy wrzucic skrypt + .bat do folderu z modelami)
+# Leave FOLDER = "" -> the script uses the folder it lives in.
+# (so it is enough to drop the script + .bat into the models folder)
 FOLDER        = ""
-OUTPUT        = ""          # puste -> ___png.png w tym samym folderze
+OUTPUT        = ""          # empty -> ___png.png in the same folder
 
-BATCH         = True        # True: TRYB WSADOWY. Zamiast czytac modele wprost
-                            # z FOLDER, wchodzi do kazdego PODFOLDERU i robi
-                            # osobny render nazwany jak folder:
-                            #   Modele\xyz\*.stl    ->  Modele\xyz.png
-                            #   Modele\abc\*.stl    ->  Modele\abc.png
-                            # Foldery bez plikow 3D sa pomijane.
+BATCH         = True        # True: BATCH MODE. Instead of reading models
+                            # directly from FOLDER, it goes into every
+                            # SUBFOLDER and makes a separate render named
+                            # after the folder:
+                            #   Models\xyz\*.stl    ->  Models\xyz.png
+                            #   Models\abc\*.stl    ->  Models\abc.png
+                            # Folders without 3D files are skipped.
 
-RECURSIVE     = True        # True: modele zbierane sa TAKZE z podfolderow.
-                            # Przyklad - folder z czesciami w podkatalogach:
+RECURSIVE     = True        # True: models are ALSO collected from subfolders.
+                            # Example - a folder with parts in subdirectories:
                             #   Dreadnought\Arms\*.stl
                             #   Dreadnought\Body\*.stl
                             #   Dreadnought\Head\*.stl
-                            # -> wszystko trafia na jedna plansze Dreadnought.png
-                            # False: tylko pliki lezace wprost w folderze.
+                            # -> everything lands on one sheet Dreadnought.png
+                            # False: only files directly in the folder.
 
 
 def _script_dir():
-    """Folder, w ktorym lezy ten skrypt (dziala tez z blender --background)."""
+    """Folder this script lives in (also works with blender --background)."""
     p = None
     try:
         p = os.path.abspath(__file__)
     except NameError:
         pass
     if not p or not os.path.isfile(p):
-        # uruchomiony z edytora tekstu w Blenderze
+        # run from Blender's text editor
         txt = bpy.context.space_data.text if hasattr(bpy.context, 'space_data') else None
         if txt and txt.filepath:
             p = bpy.path.abspath(txt.filepath)
     if not p:
-        # ostatnia deska ratunku: argument --python z linii polecen
+        # last resort: the --python argument on the command line
         for i, a in enumerate(sys.argv):
             if a == '--python' and i + 1 < len(sys.argv):
                 p = os.path.abspath(sys.argv[i + 1])
@@ -82,16 +83,16 @@ def _script_dir():
     return os.path.dirname(p) if p else os.getcwd()
 
 
-ONLY = None    # lista nazw podfolderow do zrobienia (None = wszystkie)
+ONLY = None    # list of subfolder names to process (None = all)
 
 
 def _parse_args():
-    """Argumenty po '--' w linii polecen Blendera (podaje je aplikacja):
-         --folder SCIEZKA   folder nadrzedny z podfolderami modeli
-         --only NAZWA       zrob tylko ten podfolder (mozna powtarzac)
-         --res PX           rozdzielczosc (kwadrat)
-         --samples N        jakosc renderu
-         --one-side         tylko plansza A (bez obroconej B)
+    """Arguments after '--' on Blender's command line (passed by the app):
+         --folder PATH      parent folder with model subfolders
+         --only NAME        process only this subfolder (can be repeated)
+         --res PX           resolution (square)
+         --samples N        render quality
+         --one-side         only sheet A (without the flipped B)
     """
     global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES
     if '--' not in sys.argv:
@@ -119,8 +120,8 @@ def _parse_args():
 
 
 def progress(*parts):
-    """Linia postepu dla aplikacji - zaczyna sie od '@@', flush od razu,
-    bo przy przekierowanym wyjsciu Python buforuje cale bloki."""
+    """Progress line for the app - starts with '@@' and is flushed at once,
+    because with redirected output Python buffers whole blocks."""
     print("@@ " + " ".join(str(p) for p in parts), flush=True)
 
 
@@ -129,75 +130,75 @@ if not FOLDER:
 if not OUTPUT:
     OUTPUT = os.path.join(FOLDER, "___png.png")
 
-RES_X         = 4000        # rozdzielczosc pozioma (px)
-RES_Y         = 4000        # rozdzielczosc pionowa (px)
+RES_X         = 4000        # horizontal resolution (px)
+RES_Y         = 4000        # vertical resolution (px)
 
-RENDER_BOTH_SIDES = True    # True: dla kazdego folderu powstaja DWA pliki:
-                            #   nazwa_A.png - modele jak ustawil je skrypt
-                            #   nazwa_B.png - te same modele odwrocone na
-                            #                 druga strone (widzisz ich spod)
-                            # Uklad jest identyczny na obu, wiec latwo porownac
-                            # i wybrac lepsza strone. False = tylko jeden plik.
-SAMPLES       = 128         # jakosc renderu (wiecej = ladniej + wolniej)
+RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
+                            #   name_A.png - models as the script placed them
+                            #   name_B.png - the same models flipped over
+                            #                (you see them from below)
+                            # The layout is identical on both, so it is easy to
+                            # compare and pick the better side. False = one file.
+SAMPLES       = 128         # render quality (more = nicer + slower)
 
-# Proporcja ukladu modeli (szerokosc:wysokosc). 1.0 = kwadrat.
-# None -> dopasuj automatycznie do proporcji obrazu (RES_X / RES_Y).
+# Aspect ratio of the model layout (width:height). 1.0 = square.
+# None -> match the image aspect automatically (RES_X / RES_Y).
 TARGET_ASPECT = 1.0
 
-NORMALIZE     = False       # False: zachowaj prawdziwe proporcje/skale modeli
-                            #        (OK gdy pliki sa w tych samych jednostkach)
-                            # True: przeskaluj kazdy do tej samej wysokosci (ponizej)
-TARGET_HEIGHT = 2.0         # docelowa wysokosc modelu (uzywane tylko gdy True)
-SPACING       = 0.15        # odstep miedzy czesciami (mnoznik, 0.15 = 15%)
+NORMALIZE     = False       # False: keep the real proportions/scale of models
+                            #        (fine when files use the same units)
+                            # True: rescale each to the same height (below)
+TARGET_HEIGHT = 2.0         # target model height (used only when True)
+SPACING       = 0.15        # gap between parts (multiplier, 0.15 = 15%)
 
-ALLOW_ROTATE  = True        # przy pakowaniu obroc czesc o 90 st. tak, by jej
-                            # dluzszy bok byl poziomo -> nizsze polki, ciasniej.
-                            # False = zachowaj oryginalna orientacje w plaszczyznie.
+ALLOW_ROTATE  = True        # when packing, rotate a part by 90 deg so its
+                            # longer side is horizontal -> lower shelves, tighter.
+                            # False = keep the original in-plane orientation.
 
-AO_STRENGTH   = 0.8         # sila ambient occlusion (0 = wylaczone, 1 = mocne)
-                            # przyciemnia szczeliny i osadza czesci na podlodze
-                            # mniej = ciasniej, mniej pustej podlogi miedzy modelami
+AO_STRENGTH   = 0.8         # ambient occlusion strength (0 = off, 1 = strong)
+                            # darkens crevices and grounds parts on the floor
+                            # less = tighter, less empty floor between models
 
-ONE_PER_FILE  = True        # True: jeden plik = jedna komorka (czesci zlaczone)
-                            # False: kazdy osobny obiekt dostaje wlasna komorke
+ONE_PER_FILE  = True        # True: one file = one cell (parts joined)
+                            # False: every separate object gets its own cell
 
-VIEW_MODE     = "top"       # "top" = rzut z gory (modele plasko, ciasna siatka)
-                            # "iso" = rzut z rogu (modele stojace, izometryczny)
+VIEW_MODE     = "top"       # "top" = top-down view (models flat, tight grid)
+                            # "iso" = corner view (models standing, isometric)
 
-AUTO_UPRIGHT  = True        # automatyczna orientacja modeli:
-                            #  - w trybie "iso": stawia je do pionu (najdluzsza os w gore)
-                            #  - w trybie "top": klodzie je plasko (najkrotsza os w gore,
-                            #    czyli najwieksza sylwetka widoczna z gory)
+AUTO_UPRIGHT  = True        # automatic model orientation:
+                            #  - in "iso" mode: stands them up (longest axis up)
+                            #  - in "top" mode: lays them flat (shortest axis up,
+                            #    i.e. the largest silhouette seen from above)
 
-AUTO_FLIP     = True        # True: automatycznie wybierz strone pokazywana do gory
-                            # (dziala w trybie "top"). Wyjatki nadpiszesz w ROTATIONS.
+AUTO_FLIP     = True        # True: automatically pick the side shown facing up
+                            # (works in "top" mode). Override exceptions in ROTATIONS.
 
-FLIP_METHOD   = "density"   # "density" - ocenia po gestosci siatki (szybkie,
-                            #             dawalo lepszy efekt na Twoich czesciach)
-                            # "depth"   - test mapa glebi: detal + wypuklosc
-                            #             (wolniejsze, teoretycznie dokladniejsze)
+FLIP_METHOD   = "density"   # "density" - judges by mesh density (fast,
+                            #             gave better results on your parts)
+                            # "depth"   - depth-map test: detail + convexity
+                            #             (slower, theoretically more accurate)
 
-# Reczna korekta orientacji dla konkretnych plikow. Klucz = nazwa pliku,
-# wartosc = obrot (X, Y, Z) w stopniach. Nadpisuje AUTO_UPRIGHT dla tego pliku.
-# Przyklad:
+# Manual orientation fix for specific files. Key = file name,
+# value = rotation (X, Y, Z) in degrees. Overrides AUTO_UPRIGHT for that file.
+# Example:
 #   ROTATIONS = {
-#       "kapitan.stl":  (90, 0, 0),
-#       "czolg.obj":    (0, 0, 180),
+#       "captain.stl":  (90, 0, 0),
+#       "tank.obj":     (0, 0, 180),
 #   }
 ROTATIONS = {
 }
 
-SHOW_LABELS   = False       # True: podpisz kazdy model nazwa pliku (do rozpoznania
-                            # co obrocic w ROTATIONS). Wylacz do finalnego renderu.
+SHOW_LABELS   = False       # True: label every model with its file name (to find
+                            # what to rotate in ROTATIONS). Turn off for the final render.
 
-TRANSPARENT_BG = False      # True: przezroczyste tlo (PNG z alpha), bez podlogi,
-                            # ale z zachowanymi miekkimi cieniami pod modelami
+TRANSPARENT_BG = False      # True: transparent background (PNG with alpha), no floor,
+                            # but soft shadows under the models are kept
 
-USE_GPU       = True        # sprobuj renderowac na karcie graficznej
+USE_GPU       = True        # try to render on the graphics card
 
-# Katy kamery - uzywane TYLKO w trybie "iso"
-CAM_AZIMUTH   = 45          # obrot wokol pionu (stopnie)
-CAM_ELEVATION = 32          # wysokosc kamery nad pozioma (stopnie)
+# Camera angles - used ONLY in "iso" mode
+CAM_AZIMUTH   = 45          # rotation around the vertical (degrees)
+CAM_ELEVATION = 32          # camera height above the horizon (degrees)
 
 # ========================================================================
 
@@ -212,7 +213,7 @@ def clear_scene():
 
 
 def import_file(path):
-    """Importuje plik i zwraca liste nowych obiektow typu MESH (albo None)."""
+    """Imports a file and returns the list of new MESH objects (or None)."""
     ext = os.path.splitext(path)[1].lower()
     before = set(bpy.data.objects)
     try:
@@ -232,14 +233,14 @@ def import_file(path):
         else:
             return None
     except Exception as e:
-        print(f"  BLAD importu {os.path.basename(path)}: {e}")
+        print(f"  ERROR importing {os.path.basename(path)}: {e}")
         return []
     new = [o for o in bpy.data.objects if o not in before and o.type == 'MESH']
     return new
 
 
 def join_objects(objs):
-    """Laczy liste obiektow w jeden i go zwraca."""
+    """Joins a list of objects into one and returns it."""
     if not objs:
         return None
     if len(objs) == 1:
@@ -262,8 +263,8 @@ def world_bbox(obj):
 
 
 def robust_bounds(obj, lo=1.0, hi=99.0):
-    """Zwraca (min, max) w swiecie liczone z percentyli wierzcholkow -
-    ignoruje zablakane wierzcholki. Fallback do world_bbox bez numpy."""
+    """Returns world (min, max) computed from vertex percentiles -
+    ignores stray vertices. Falls back to world_bbox without numpy."""
     me = getattr(obj, "data", None)
     if not HAS_NUMPY or me is None or len(me.vertices) == 0:
         return world_bbox(obj)
@@ -283,14 +284,14 @@ MODEL_EXTS = ('.stl', '.obj', '.ply', '.fbx', '.glb', '.gltf')
 
 
 def collect_models(folder, recursive=True):
-    """Zwraca liste (nazwa_do_pokazania, pelna_sciezka) posortowana.
+    """Returns a sorted list of (display_name, full_path).
 
-    recursive=True -> wchodzi tez do podfolderow, np.
+    recursive=True -> also walks into subfolders, e.g.
         Dreadnought/Arms/a.stl
         Dreadnought/Body/b.stl
-      wszystko trafia na JEDNA plansze "Dreadnought".
-    Nazwa do pokazania zawiera podfolder (Arms/a.stl), zeby bylo wiadomo
-    skad czesc pochodzi i zeby te same nazwy plikow sie nie mylily.
+      everything lands on ONE sheet "Dreadnought".
+    The display name includes the subfolder (Arms/a.stl), so it is clear
+    where a part comes from and identical file names do not get mixed up.
     """
     out = []
     if recursive:
@@ -309,14 +310,14 @@ def collect_models(folder, recursive=True):
 
 
 def rotate_world(obj, axis, deg):
-    """Obraca obiekt o zadany kat wokol osi SWIATA.
+    """Rotates the object by the given angle around a WORLD axis.
 
-    UWAGA - to nie to samo co obj.rotation_euler[i] += kat!
-    Blender sklada katy Eulera w kolejnosci XYZ (R = Rz @ Ry @ Rx), wiec
-    skladowa X dziala PIERWSZA. Jesli model zostal wczesniej polozony
-    obrotem wokol Y, to dodanie 180 do skladowej X NIE odwroci go na
-    druga strone - obroci go w plaszczyznie, bo obrot Y przemapowuje os X.
-    Skladanie macierzy swiata (R @ matrix_world) jest odporne na kolejnosc.
+    NOTE - this is not the same as obj.rotation_euler[i] += angle!
+    Blender composes Euler angles in XYZ order (R = Rz @ Ry @ Rx), so the
+    X component acts FIRST. If the model was previously laid down by a
+    rotation around Y, adding 180 to the X component will NOT flip it to
+    the other side - it rotates it in-plane, because the Y rotation remaps
+    the X axis. Composing the world matrix (R @ matrix_world) is order-proof.
     """
     R = Matrix.Rotation(math.radians(deg), 4, axis)
     obj.matrix_world = R @ obj.matrix_world
@@ -324,7 +325,7 @@ def rotate_world(obj, axis, deg):
 
 
 def apply_manual_rotation(obj, name):
-    """Reczna korekta z ROTATIONS. Zwraca True jesli cos zastosowano."""
+    """Manual fix from ROTATIONS. Returns True if anything was applied."""
     rot = ROTATIONS.get(name)
     if not rot:
         return False
@@ -335,12 +336,12 @@ def apply_manual_rotation(obj, name):
 
 
 def orient_upright(obj):
-    """Obraca obiekt tak, by jego najdluzsza os byla pionowa (Z)."""
+    """Rotates the object so its longest axis is vertical (Z)."""
     mn, mx = robust_bounds(obj)
     dx, dy, dz = (mx.x - mn.x), (mx.y - mn.y), (mx.z - mn.z)
     longest = max(dx, dy, dz)
     if longest <= dz:
-        return                                    # juz stoi
+        return                                    # already standing
     if longest == dx:
         rotate_world(obj, 'Y', 90)   # X -> Z
     else:
@@ -348,12 +349,12 @@ def orient_upright(obj):
 
 
 def orient_flat(obj):
-    """Kladzie obiekt plasko - najkrotsza os pionowo (najwieksza sylwetka z gory)."""
+    """Lays the object flat - shortest axis vertical (largest silhouette from above)."""
     mn, mx = robust_bounds(obj)
     dx, dy, dz = (mx.x - mn.x), (mx.y - mn.y), (mx.z - mn.z)
     shortest = min(dx, dy, dz)
     if shortest >= dz:
-        return                                    # juz lezy plasko
+        return                                    # already lying flat
     if shortest == dx:
         rotate_world(obj, 'Y', 90)   # X -> Z
     else:
@@ -361,18 +362,18 @@ def orient_flat(obj):
 
 
 def _visible_relief(obj, grid=40):
-    """Ocenia, jak dobrze wyglada ta strona czesci widziana z gory.
-    Kryterium jak przy rendere probnym, ale liczone mapa glebi (raycast):
-    szybciej i bez renderowania. Sklada sie z dwoch miar:
+    """Scores how good this side of the part looks when seen from above.
+    Same criterion as a test render, but computed from a depth map (raycast):
+    faster and without rendering. Made of two measures:
 
-    1. DETAL = lokalny gradient mapy glebi (nie globalny rozrzut!). Wydrazony
-       tyl to jedna wielka gladka misa - ogromny rozrzut, ale zmiana lagodna.
-       Rzezbiony przod to gestwina drobnych skokow. Liczy sie czestotliwosc
-       zmian, nie ich amplituda.
+    1. DETAIL = local gradient of the depth map (not the global spread!).
+       A hollow back is one big smooth bowl - huge spread, but gentle change.
+       A sculpted front is a thicket of small steps. What counts is how
+       often the surface changes, not by how much.
 
-    2. WYPUKLOSC = jak wysoko lezy material w bryle czesci. Skorupa wnetrzem
-       do gory ma wysoka tylko krawedz. Bez tej miary skorupy z zeberkami
-       w srodku wygrywaja sama gestoscia detalu.
+    2. CONVEXITY = how high the material sits within the part's bounds.
+       A shell lying cavity-up has only its rim high. Without this measure
+       shells with ribs inside win on detail density alone.
     """
     me = getattr(obj, "data", None)
     if not HAS_NUMPY or me is None or len(me.vertices) == 0:
@@ -386,7 +387,7 @@ def _visible_relief(obj, grid=40):
     if ntri == 0:
         return 0.0
 
-    # wierzcholki -> swiat
+    # vertices -> world space
     nv = len(me.vertices)
     co = np.empty(nv * 3, dtype=np.float64)
     me.vertices.foreach_get('co', co)
@@ -415,7 +416,7 @@ def _visible_relief(obj, grid=40):
     z_start = float(mx[2]) + zext * 0.5
     down = Vector((0.0, 0.0, -1.0))
 
-    # mapa glebi: NaN = promien w powietrze (poza sylwetka)
+    # depth map: NaN = ray went into the air (outside the silhouette)
     dm = np.full((grid, grid), np.nan, dtype=np.float64)
     hits = 0
     for gx in range(grid):
@@ -429,8 +430,8 @@ def _visible_relief(obj, grid=40):
     if hits < 16:
         return 0.0
 
-    # lokalny gradient: srednia |roznica| miedzy sasiednimi probkami.
-    # Liczymy tylko pary, gdzie oba promienie trafily w model.
+    # local gradient: mean |difference| between neighbouring samples.
+    # Only pairs where both rays hit the model are counted.
     diffs = []
     for a, b in ((dm[1:, :], dm[:-1, :]), (dm[:, 1:], dm[:, :-1])):
         d = np.abs(a - b)
@@ -440,17 +441,17 @@ def _visible_relief(obj, grid=40):
     if not diffs:
         return 0.0
     grad = np.concatenate(diffs)
-    # przycinamy skrajne 2% - pojedyncze urwiska na krawedzi sylwetki
-    # nie moga przewazyc nad ogolna gestoscia detalu
+    # clip the top 2% - single cliffs at the silhouette edge
+    # must not outweigh the overall detail density
     hi = np.percentile(grad, 98.0)
     grad = np.clip(grad, 0.0, hi)
     detail = float(grad.mean()) / zext
 
-    # WYPUKLOSC: jak wysoko lezy material wzgledem bryly czesci.
-    # Skorupa wnetrzem do gory ma wysoka tylko krawedz, a cala reszte
-    # powierzchni gleboko pod nia -> niskie meanh. Strona wypukla ma
-    # material tuz pod szczytem -> wysokie meanh. Bez tego skorupy z
-    # zeberkami w srodku wygrywaja sama gestoscia detalu.
+    # CONVEXITY: how high the material sits relative to the part's bounds.
+    # A shell lying cavity-up has only its rim high and the rest of the
+    # surface deep below it -> low meanh. A convex side has material
+    # right under the top -> high meanh. Without this, shells with
+    # ribs inside win on detail density alone.
     vals = dm[~np.isnan(dm)]
     meanh = float(((vals - float(mn[2])) / zext).mean())
 
@@ -459,9 +460,9 @@ def _visible_relief(obj, grid=40):
 
 
 def _flip_by_density(obj):
-    """Metoda 'density' - ocenia strone po gestosci siatki.
-    Zaklada, ze rzezbiony przod ma duzo drobnych trojkatow, a gladki/plaski
-    tyl malo. Szybka, nie liczy zadnych promieni. Zwraca True jesli obrocono.
+    """'density' method - judges a side by mesh density.
+    Assumes the sculpted front has many small triangles and the smooth/flat
+    back has few. Fast, casts no rays. Returns True if the part was flipped.
     """
     me = getattr(obj, "data", None)
     if not HAS_NUMPY or me is None or len(me.vertices) == 0:
@@ -494,23 +495,23 @@ def _flip_by_density(obj):
         return False
     dens_up, dens_dn = n_up / a_up, n_dn / a_dn
 
-    if dens_dn > dens_up * 1.15:       # detal wyraznie pod spodem -> obroc
+    if dens_dn > dens_up * 1.15:       # detail clearly underneath -> flip
         rotate_world(obj, 'X', 180)
         return True
     return False
 
 
 def auto_flip_detail(obj):
-    """Wybiera strone pokazywana do gory. Metoda wg FLIP_METHOD."""
+    """Picks the side shown facing up. Method set by FLIP_METHOD."""
     if FLIP_METHOD == "density":
         return _flip_by_density(obj)
-    # "depth": testuje obie strony mapa glebi i zostawia lepsza
+    # "depth": tests both sides with a depth map and keeps the better one
     a = _visible_relief(obj)
     rotate_world(obj, 'X', 180)
     b = _visible_relief(obj)
-    if b > a * 1.05:                 # obrocona strona wyraznie ciekawsza
+    if b > a * 1.05:                 # flipped side clearly more interesting
         return True
-    rotate_world(obj, 'X', -180)   # wracamy do oryginalu
+    rotate_world(obj, 'X', -180)   # back to the original
     return False
 
 
@@ -519,22 +520,22 @@ def make_clay_material():
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
-        bsdf.inputs["Base Color"].default_value = (0.72, 0.70, 0.66, 1.0)   # jasna kosc
+        bsdf.inputs["Base Color"].default_value = (0.72, 0.70, 0.66, 1.0)   # light bone
         bsdf.inputs["Roughness"].default_value = 0.6
         for name in ("Specular IOR Level", "Specular"):
             if name in bsdf.inputs:
                 bsdf.inputs[name].default_value = 0.2
 
-    # (5) Ambient occlusion - przyciemnia szczeliny i miejsca styku,
-    # przez co rzezba jest czytelniejsza a czesci "siedza" na podlodze.
+    # (5) Ambient occlusion - darkens crevices and contact points,
+    # which makes the sculpt easier to read and parts "sit" on the floor.
     if AO_STRENGTH > 0 and bsdf:
         nt = mat.node_tree
         ao = nt.nodes.new('ShaderNodeAmbientOcclusion')
         ao.samples = 16
-        ao.inputs['Distance'].default_value = 1.0   # ustawiane pozniej wg skali
+        ao.inputs['Distance'].default_value = 1.0   # set later according to scale
         ao.name = "ClayAO"
         base = nt.nodes.new('ShaderNodeRGB')
-        base.outputs[0].default_value = (0.72, 0.70, 0.66, 1.0)   # musi byc == Base Color wyzej
+        base.outputs[0].default_value = (0.72, 0.70, 0.66, 1.0)   # must == Base Color above
         mix = nt.nodes.new('ShaderNodeMixRGB')
         mix.blend_type = 'MULTIPLY'
         mix.inputs['Fac'].default_value = min(1.0, max(0.0, AO_STRENGTH))
@@ -550,30 +551,30 @@ def setup_lighting():
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg:
-        bg.inputs[0].default_value = (0.80, 0.83, 0.88, 1.0)   # chlodne otoczenie
-        bg.inputs[1].default_value = 0.4                        # sila wypelnienia
+        bg.inputs[0].default_value = (0.80, 0.83, 0.88, 1.0)   # cool ambient
+        bg.inputs[1].default_value = 0.4                        # fill strength
 
-    # Swiatla SUN sa niezalezne od skali sceny - oswietlaja rowno
-    # niezaleznie od tego, jak duze sa modele (kluczowe przy NORMALIZE=False).
+    # SUN lights do not depend on scene scale - they light evenly
+    # no matter how big the models are (crucial with NORMALIZE=False).
     def sun(name, rot_deg, energy):
         ld = bpy.data.lights.new(name, 'SUN')
         ld.energy = energy
-        ld.angle = math.radians(4)        # rozmiar tarczy = miekkosc cieni
+        ld.angle = math.radians(4)        # disc size = shadow softness
         o = bpy.data.objects.new(name, ld)
         o.rotation_euler = tuple(math.radians(a) for a in rot_deg)
         bpy.context.collection.objects.link(o)
         return o
 
-    # (obrot X = nachylenie, obrot Z = kierunek/azymut)
-    # wysokie nachylenie -> krotkie cienie, ktore nie rozlewaja sie na sasiadow
-    sun("Key",  (70, 0, 35),   1.6)    # glowne, prawie z gory
-    sun("Fill", (72, 0, -110), 0.6)    # wypelnienie z drugiej strony
-    sun("Rim",  (75, 0, 180),  0.9)    # kontra od tylu, odcina od tla
+    # (X rotation = tilt, Z rotation = direction/azimuth)
+    # high tilt -> short shadows that do not spill onto neighbours
+    sun("Key",  (70, 0, 35),   1.6)    # main, almost from above
+    sun("Fill", (72, 0, -110), 0.6)    # fill from the other side
+    sun("Rim",  (75, 0, 180),  0.9)    # back light, separates from background
 
 
 def main(FOLDER, OUTPUT):
     if not os.path.isdir(FOLDER):
-        print(f"!!! Folder nie istnieje: {FOLDER}")
+        print(f"!!! Folder does not exist: {FOLDER}")
         return
 
     clear_scene()
@@ -581,10 +582,10 @@ def main(FOLDER, OUTPUT):
     files = collect_models(FOLDER, RECURSIVE)
 
     clay = make_clay_material()
-    cells = []          # gotowe obiekty do rozlozenia
-    cell_names = []     # nazwa pliku dla kazdej komorki (do podpisow)
+    cells = []          # finished objects to lay out
+    cell_names = []     # file name for each cell (for labels)
     skipped = []
-    flipped = []        # pliki obrocone przez AUTO_FLIP (raport w konsoli)
+    flipped = []        # files flipped by AUTO_FLIP (console report)
 
     for k, (f, path) in enumerate(files, 1):
         progress("IMPORT", k, len(files))
@@ -601,7 +602,7 @@ def main(FOLDER, OUTPUT):
             # material
             obj.data.materials.clear()
             obj.data.materials.append(clay)
-            # orientacja: reczna korekta ma pierwszenstwo nad auto
+            # orientation: a manual fix takes precedence over auto
             if not apply_manual_rotation(obj, f) and AUTO_UPRIGHT:
                 if VIEW_MODE == "top":
                     orient_flat(obj)
@@ -609,7 +610,7 @@ def main(FOLDER, OUTPUT):
                         flipped.append(f)
                 else:
                     orient_upright(obj)
-            # normalizacja wysokosci
+            # height normalisation
             if NORMALIZE:
                 mn, mx = robust_bounds(obj)
                 h = mx.z - mn.z
@@ -621,12 +622,12 @@ def main(FOLDER, OUTPUT):
             cell_names.append(f)
 
     if not cells:
-        print("!!! Nie zaimportowano zadnych modeli.")
+        print("!!! No models were imported.")
         return
 
-    # rozmiar komorki: MEDIANA footprintow - odporna nawet gdy polowa modeli
-    # to outliery. Normalne modele wypelnia kadr, odmiency wyjda poza komorke
-    # (ale beda widoczni), zamiast rozdmuchac cala siatke do niewidocznosci.
+    # cell size: MEDIAN of footprints - robust even when half the models
+    # are outliers. Normal models fill the frame, odd ones stick out of their
+    # cell (but stay visible) instead of blowing the whole grid up to nothing.
     foots = []
     heights = []
     for obj in cells:
@@ -643,19 +644,19 @@ def main(FOLDER, OUTPUT):
     if rep_height <= 0:
         rep_height = cell
 
-    # DIAGNOSTYKA - rozpietosc rozmiarow modeli (sprawdz w konsoli!)
-    print("  --- rozmiary modeli (footprint) ---")
-    print("      min: %.3f   mediana: %.3f   max: %.3f"
+    # DIAGNOSTICS - spread of model sizes (check the console!)
+    print("  --- model sizes (footprint) ---")
+    print("      min: %.3f   median: %.3f   max: %.3f"
           % (foots_sorted[0], med, foots_sorted[-1]))
     if med > 0 and foots_sorted[-1] > med * 4:
         outliers = sorted(set(cell_names[i] for i, fp in enumerate(foots)
                               if fp > med * 4))
-        print("  UWAGA - te pliki sa >4x wieksze od mediany (zla skala lub"
-              " zablakany wierzcholek): " + ", ".join(outliers))
-        print("      -> rozwiazanie: napraw te pliki albo ustaw NORMALIZE = True")
+        print("  WARNING - these files are >4x larger than the median (wrong scale"
+              " or a stray vertex): " + ", ".join(outliers))
+        print("      -> fix: repair those files or set NORMALIZE = True")
 
-    # dystans AO musi pasowac do skali modeli (inaczej efekt zniknie albo
-    # zaczerni wszystko) - ustawiamy go dopiero teraz, gdy znamy mediane
+    # AO distance must match the model scale (otherwise the effect vanishes
+    # or blackens everything) - set only now, once the median is known
     if AO_STRENGTH > 0:
         ao_node = clay.node_tree.nodes.get("ClayAO")
         if ao_node:
@@ -672,38 +673,38 @@ def main(FOLDER, OUTPUT):
             lb.inputs["Base Color"].default_value = (0.1, 0.1, 0.1, 1.0)
             lb.inputs["Roughness"].default_value = 0.9
 
-    # --- PAKOWANIE POLKOWE (shelf packing) -----------------------------
-    # Kazdy model dostaje slot swojego realnego rozmiaru (footprint), modele
-    # ukladane polka po polce. Brak nachodzenia mimo roznych rozmiarow -
-    # i BEZ ruszania skali modeli.
-    #  * ALLOW_ROTATE: dluzszy bok w poziomie -> nizsze polki, ciasniej
-    #  * sortowanie wg wysokosci malejaco -> podobne wysokosci na jednej polce
-    #  * srodkowanie w pionie polki -> schludniej, mniej dziur
-    gap = med * SPACING                       # absolutny odstep miedzy modelami
+    # --- SHELF PACKING --------------------------------------------------
+    # Every model gets a slot of its real size (footprint), models are
+    # placed shelf by shelf. No overlap despite different sizes -
+    # and WITHOUT touching the model scale.
+    #  * ALLOW_ROTATE: longer side horizontal -> lower shelves, tighter
+    #  * sort by height descending -> similar heights on one shelf
+    #  * centre vertically on the shelf -> neater, fewer holes
+    gap = med * SPACING                       # absolute gap between models
 
-    # WYMIARY DO PAKOWANIA: bierzemy PRAWDZIWY bounding box, nie percentyle.
-    # Powod: robust_bounds obcina 1% skrajnych wierzcholkow. Przy duzych
-    # plaskich plytach (sciany, panele) geometria jest gesta w srodku, a rzadka
-    # na krawedziach - obciete zostaja wtedy REALNE brzegi, slot wychodzi za
-    # maly i sasiednie czesci na siebie nachodza.
-    # Percentyle zostaja tylko jako bezpiecznik: jesli prawdziwy bbox jest
-    # absurdalnie wiekszy (zablakany wierzcholek), uzywamy wersji przycietej.
+    # PACKING DIMENSIONS: use the REAL bounding box, not percentiles.
+    # Reason: robust_bounds trims the outermost 1% of vertices. With large
+    # flat plates (walls, panels) geometry is dense in the middle and sparse
+    # at the edges - so REAL edges get trimmed, the slot comes out too
+    # small and neighbouring parts overlap.
+    # Percentiles stay only as a safety net: if the real bbox is
+    # absurdly larger (a stray vertex), the trimmed version is used.
     dims = []
     huge = []
     for i, obj in enumerate(cells):
-        tmn, tmx = world_bbox(obj)                 # prawdziwe wymiary
-        rmn, rmx = robust_bounds(obj)              # przyciete percentylami
+        tmn, tmx = world_bbox(obj)                 # real dimensions
+        rmn, rmx = robust_bounds(obj)              # trimmed by percentiles
         tw, th = tmx.x - tmn.x, tmx.y - tmn.y
         rw, rh = rmx.x - rmn.x, rmx.y - rmn.y
         if rw > 0 and rh > 0 and (tw > rw * 3.0 or th > rh * 3.0):
-            dims.append([rw, rh])                  # patologia - bierz przyciete
+            dims.append([rw, rh])                  # pathological - take trimmed
             huge.append(cell_names[i])
         else:
             dims.append([tw, th])
     if huge:
-        print("  [i] Zablakana geometria w: " + ", ".join(sorted(set(huge))))
+        print("  [i] Stray geometry in: " + ", ".join(sorted(set(huge))))
 
-    # (3) obrot 90 st. w plaszczyznie: ustaw dluzszy bok poziomo
+    # (3) 90 deg in-plane rotation: put the longer side horizontally
     rotated = []
     if ALLOW_ROTATE:
         for i, obj in enumerate(cells):
@@ -713,13 +714,13 @@ def main(FOLDER, OUTPUT):
                 dims[i] = [h, w]
                 rotated.append(cell_names[i])
 
-    # (1) sortowanie wg wysokosci malejaco - klasyczna poprawka shelf packingu
+    # (1) sort by height descending - the classic shelf packing improvement
     order = sorted(range(n), key=lambda i: -dims[i][1])
 
     def pack(row_width):
-        """Uklada modele polkami przy zadanej szerokosci rzedu.
-        Zwraca (pozycje wg indeksu, szerokosc, wysokosc, granice)."""
-        shelves = []                          # [[indeksy], ...]
+        """Lays models out on shelves for the given row width.
+        Returns (positions by index, width, height, bounds)."""
+        shelves = []                          # [[indices], ...]
         cur, x_cur = [], 0.0
         for i in order:
             w = dims[i][0]
@@ -731,7 +732,7 @@ def main(FOLDER, OUTPUT):
         if cur:
             shelves.append(cur)
 
-        # szerokosc kazdej polki (do wysrodkowania w poziomie)
+        # width of every shelf (for horizontal centring)
         shelf_w = []
         for items in shelves:
             shelf_w.append(sum(dims[i][0] for i in items) + gap * (len(items) - 1))
@@ -740,12 +741,12 @@ def main(FOLDER, OUTPUT):
         pos = [None] * n
         y_top = 0.0
         for si, items in enumerate(shelves):
-            sh = max(dims[i][1] for i in items)    # wysokosc polki
-            # wysrodkowanie polki w poziomie - niepelny rzad nie "ucieka" w lewo
+            sh = max(dims[i][1] for i in items)    # shelf height
+            # centre the shelf horizontally - a partial row does not drift left
             x_cur = (max_w - shelf_w[si]) * 0.5
             for i in items:
                 w, h = dims[i]
-                # (2) srodkowanie w pionie polki
+                # (2) centre vertically on the shelf
                 pos[i] = (x_cur + w * 0.5, y_top - sh * 0.5)
                 x_cur += w + gap
             y_top -= (sh + gap)
@@ -756,9 +757,9 @@ def main(FOLDER, OUTPUT):
         ys_max = max(pos[i][1] + dims[i][1] * 0.5 for i in range(n))
         return pos, (xs_max - xs_min), (ys_max - ys_min), (xs_min, xs_max, ys_min, ys_max)
 
-    # Szukamy szerokosci rzedu dajacej uklad o proporcji TARGET_ASPECT.
-    # Prosty wzor (sqrt z sumy pol) nie wystarcza, bo polki maja rozne
-    # wysokosci i zostaja w nich luki - wiec testujemy wiele wariantow.
+    # Look for the row width that gives a layout with TARGET_ASPECT ratio.
+    # A simple formula (sqrt of total area) is not enough, because shelves
+    # have different heights and leave gaps - so many variants are tested.
     widest = max(d[0] for d in dims)
     total_area = sum((d[0] + gap) * (d[1] + gap) for d in dims)
     base = math.sqrt(total_area) if total_area > 0 else 1.0
@@ -769,26 +770,26 @@ def main(FOLDER, OUTPUT):
         pos, lw, lh, bounds = pack(rw)
         if lh <= 0 or lw <= 0:
             continue
-        err = abs(math.log((lw / lh) / aspect_goal))   # log -> symetrycznie
+        err = abs(math.log((lw / lh) / aspect_goal))   # log -> symmetric
         if best is None or err < best[0]:
             best = (err, pos, lw, lh, bounds)
     positions = best[1]
     lay_min_x, lay_max_x, lay_min_y, lay_max_y = best[4]
-    print("  Proporcja ukladu: %.2f:1 (cel %.2f:1)" % (best[2] / best[3], aspect_goal))
+    print("  Layout aspect: %.2f:1 (target %.2f:1)" % (best[2] / best[3], aspect_goal))
     if rotated:
-        print("  Obrocono 90 st. przy pakowaniu: %d czesci" % len(rotated))
+        print("  Rotated 90 deg while packing: %d parts" % len(rotated))
 
-    # ustaw modele w slotach: baza na z=0, footprint wysrodkowany w slocie
-    # WAZNE: srodek liczymy z tej samej miary, co wymiary slotu (prawdziwy
-    # bbox) - inaczej czesc przesunie sie wzgledem swojego slotu i wejdzie
-    # na sasiada.
+    # place models in their slots: base at z=0, footprint centred in the slot
+    # IMPORTANT: the centre is computed with the same measure as the slot
+    # size (real bbox) - otherwise the part shifts relative to its slot and
+    # runs into its neighbour.
     for i, obj in enumerate(cells):
         cx, cy = positions[i]
         mn, mx = world_bbox(obj)
         center = (mn + mx) * 0.5
         obj.location.x += cx - center.x
         obj.location.y += cy - center.y
-        obj.location.z += -mn.z            # postaw na "podlodze"
+        obj.location.z += -mn.z            # stand it on the "floor"
         bpy.context.view_layer.update()
 
         if SHOW_LABELS:
@@ -815,14 +816,14 @@ def main(FOLDER, OUTPUT):
 
     setup_lighting()
 
-    # kamera izometryczna (ortho)
+    # isometric camera (ortho)
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.type = 'ORTHO'
     cam = bpy.data.objects.new("Cam", cam_data)
     bpy.context.collection.objects.link(cam)
 
-    # srodek i kadr liczone z granic UKLADU (pakowanie polkowe) - odporne
-    # na outliery: kazdy model zajmuje slot swojego rozmiaru
+    # centre and framing computed from the LAYOUT bounds (shelf packing) -
+    # robust to outliers: every model occupies a slot of its own size
     gx_min, gx_max = lay_min_x, lay_max_x
     gy_min, gy_max = lay_min_y, lay_max_y
     gz_min, gz_max = 0.0, rep_height
@@ -831,7 +832,7 @@ def main(FOLDER, OUTPUT):
                      (gz_min + gz_max) * 0.5))
 
     if VIEW_MODE == "top":
-        # prosto z gory, patrzy w dol, gora kadru = +Y
+        # straight from above, looking down, top of frame = +Y
         cam.location = target + Vector((0, 0, 1)) * grid_diag * 3
     else:
         az = math.radians(CAM_AZIMUTH)
@@ -844,18 +845,18 @@ def main(FOLDER, OUTPUT):
     cam.rotation_euler = look.to_track_quat('-Z', 'Y').to_euler()
     bpy.context.scene.camera = cam
 
-    # ZASIEG WIDZENIA KAMERY (clip). Blender domyslnie obcina wszystko dalej
-    # niz 100 jednostek. Modele bywaja duze (footprint rzedu 100+ jednostek),
-    # a kamere stawiamy w odleglosci grid_diag*3 - przy wiekszych zestawach
-    # to setki/tysiace jednostek. Bez tego render wychodzi PUSTY (widac samo
-    # tlo swiata, bez modeli i bez podlogi). Skalujemy zasieg do sceny.
+    # CAMERA CLIPPING RANGE. By default Blender clips everything further than
+    # 100 units. Models can be large (footprints of 100+ units), and the
+    # camera is placed grid_diag*3 away - with bigger sets that is
+    # hundreds/thousands of units. Without this the render comes out EMPTY
+    # (only the world background, no models, no floor). Scale range to scene.
     cam_dist = (target - cam.location).length
     cam_data.clip_start = max(1e-4, grid_diag * 0.001)
     cam_data.clip_end = (cam_dist + grid_diag * 4.0) * 2.0 + 1000.0
-    print("  Kamera: odleglosc %.1f, zasieg %.1f - %.1f"
+    print("  Camera: distance %.1f, range %.1f - %.1f"
           % (cam_dist, cam_data.clip_start, cam_data.clip_end))
 
-    # dopasuj ortho_scale do 8 naroznikow bryly SIATKI w ukladzie kamery
+    # fit ortho_scale to the 8 corners of the GRID volume in camera space
     bpy.context.view_layer.update()
     minv = cam.matrix_world.inverted()
     ext_x = ext_y = 0.0
@@ -865,11 +866,11 @@ def main(FOLDER, OUTPUT):
                 p = minv @ Vector((cx, cy, cz))
                 ext_x = max(ext_x, abs(p.x))
                 ext_y = max(ext_y, abs(p.y))
-    cam_data.ortho_scale = 2.0 * max(ext_x, ext_y) * 1.06   # 6% marginesu
+    cam_data.ortho_scale = 2.0 * max(ext_x, ext_y) * 1.06   # 6% margin
 
-    # podloga: tworzona PO dopasowaniu kamery, rozmiar wzgledem kadru
-    # (a nie 4x siatki), wysrodkowana na modelach. W izo musi byc wieksza,
-    # bo grunt "ucieka" w glab kadru.
+    # floor: created AFTER fitting the camera, sized relative to the frame
+    # (not 4x the grid), centred on the models. In iso it has to be larger,
+    # because the ground "runs away" into the depth of the frame.
     floor_span = cam_data.ortho_scale * (4.0 if VIEW_MODE == "iso" else 1.6)
     bpy.ops.mesh.primitive_plane_add(
         size=floor_span, location=(target.x, target.y, 0))
@@ -878,11 +879,11 @@ def main(FOLDER, OUTPUT):
     fmat.use_nodes = True
     fb = fmat.node_tree.nodes.get("Principled BSDF")
     if fb:
-        fb.inputs["Base Color"].default_value = (0.10, 0.11, 0.13, 1.0)   # ciemne tlo
+        fb.inputs["Base Color"].default_value = (0.10, 0.11, 0.13, 1.0)   # dark background
         fb.inputs["Roughness"].default_value = 0.9
     floor.data.materials.append(fmat)
     if TRANSPARENT_BG:
-        floor.is_shadow_catcher = True   # widoczne tylko cienie, reszta przezroczysta
+        floor.is_shadow_catcher = True   # only shadows visible, the rest transparent
 
     # render
     scene = bpy.context.scene
@@ -899,7 +900,7 @@ def main(FOLDER, OUTPUT):
     else:
         scene.render.film_transparent = False
         scene.render.image_settings.color_mode = 'RGB'
-    # AgX lagodnie wygasza jasne obszary (nie przepala do bieli)
+    # AgX rolls off bright areas gently (does not blow out to white)
     try:
         scene.view_settings.view_transform = 'AgX'
     except Exception:
@@ -916,38 +917,38 @@ def main(FOLDER, OUTPUT):
                         for d in prefs.devices:
                             d.use = True
                         scene.cycles.device = 'GPU'
-                        print(f"  Render na GPU ({backend})")
+                        print(f"  Rendering on GPU ({backend})")
                         break
                 except Exception:
                     continue
         except Exception as e:
-            print(f"  GPU niedostepne, licze na CPU: {e}")
+            print(f"  GPU unavailable, rendering on CPU: {e}")
 
-    print(f"\n  Modeli w ukladzie: {n}")
+    print(f"\n  Models in layout: {n}")
     if flipped:
-        print(f"  AUTO_FLIP obrocil {len(flipped)} czesci (detal patrzyl w dol):")
+        print(f"  AUTO_FLIP flipped {len(flipped)} parts (detail was facing down):")
         print("      " + ", ".join(sorted(set(flipped))))
     if skipped:
-        print(f"  Pominieto 3MF (wyeksportuj do STL): {', '.join(skipped)}")
+        print(f"  Skipped 3MF (export them to STL): {', '.join(skipped)}")
 
     def _render_to(path):
         progress("RENDER", os.path.basename(path))
         scene.render.filepath = path
-        print(f"  Renderuje -> {path}")
+        print(f"  Rendering -> {path}")
         bpy.ops.render.render(write_still=True)
 
     if not RENDER_BOTH_SIDES:
         _render_to(OUTPUT)
-        print("  GOTOWE.")
+        print("  DONE.")
         return
 
-    # A i B z JEDNEJ sceny - import, orientacja i pakowanie liczone raz.
+    # A and B from ONE scene - import, orientation and packing computed once.
     _render_to(_with_suffix(OUTPUT, "_A"))
 
-    # odwroc kazdy model na druga strone i posadz z powrotem w jego slocie.
-    # Obrot o 180 st. wokol X nie zmienia wymiarow obrysu (X ten sam,
-    # Y lustrzany, Z ten sam), wiec pozycje slotow zostaja te same -
-    # czesci beda dokladnie tam, gdzie na A.
+    # flip every model over and put it back into its slot.
+    # A 180 deg rotation around X does not change the footprint size (X the
+    # same, Y mirrored, Z the same), so slot positions stay the same -
+    # parts end up exactly where they were on A.
     for i, obj in enumerate(cells):
         rotate_world(obj, 'X', 180)
         cx, cy = positions[i]
@@ -959,51 +960,51 @@ def main(FOLDER, OUTPUT):
     bpy.context.view_layer.update()
 
     _render_to(_with_suffix(OUTPUT, "_B"))
-    print("  GOTOWE.")
+    print("  DONE.")
 
 
 def _with_suffix(path, suffix):
-    """wstawia sufiks przed rozszerzeniem: plansza.png -> plansza_A.png"""
+    """inserts a suffix before the extension: sheet.png -> sheet_A.png"""
     root, ext = os.path.splitext(path)
     return root + suffix + ext
 
 
 def run_all():
-    """Tryb pojedynczy albo wsadowy - zaleznie od BATCH."""
+    """Single or batch mode - depending on BATCH."""
     if not BATCH:
         main(FOLDER, OUTPUT)
         return
 
     subs = []
-    pominiete = []
+    skipped_dirs = []
     for name in sorted(os.listdir(FOLDER)):
         d = os.path.join(FOLDER, name)
         if not os.path.isdir(d):
             continue
-        # foldery zaczynajace sie od _ sa pomijane (tak jak przy zipowaniu)
+        # folders starting with _ are skipped (same as when zipping)
         if ONLY is not None and name not in ONLY:
             continue
         if name.startswith('_'):
-            pominiete.append(name)
+            skipped_dirs.append(name)
             continue
-        # tylko foldery, ktore zawieraja modele - takze w podfolderach
-        # (np. Dreadnought\\Arms\\*.stl), jesli RECURSIVE = True
+        # only folders that contain models - also in subfolders
+        # (e.g. Dreadnought\\Arms\\*.stl), if RECURSIVE = True
         try:
             if collect_models(d, RECURSIVE):
                 subs.append((name, d))
         except Exception:
             continue
 
-    if pominiete:
-        print("  Pominieto foldery z _ : " + ", ".join(pominiete))
+    if skipped_dirs:
+        print("  Skipped folders starting with _ : " + ", ".join(skipped_dirs))
 
     if not subs:
-        print(f"!!! Brak podfolderow z modelami w: {FOLDER}")
-        print("    (BATCH = True oczekuje folderow, w kazdym pliki 3D)")
+        print(f"!!! No subfolders with models in: {FOLDER}")
+        print("    (BATCH = True expects folders, each with 3D files)")
         return
 
     print("\n" + "=" * 60)
-    print(f"  TRYB WSADOWY - folderow do zrobienia: {len(subs)}")
+    print(f"  BATCH MODE - folders to process: {len(subs)}")
     print("=" * 60)
 
     progress("TOTAL", len(subs))
@@ -1020,14 +1021,14 @@ def run_all():
             done.append(name)
             progress("DONE", "ok", name)
         except Exception as e:
-            print(f"  !!! BLAD przy '{name}': {e}")
+            print(f"  !!! ERROR in '{name}': {e}")
             failed.append(name)
             progress("DONE", "fail", name)
 
     print("\n" + "=" * 60)
-    print(f"  KONIEC: gotowe {len(done)} / {len(subs)}")
+    print(f"  FINISHED: done {len(done)} / {len(subs)}")
     if failed:
-        print("  Nie udalo sie: " + ", ".join(failed))
+        print("  Failed: " + ", ".join(failed))
     print("=" * 60 + "\n")
 
 
