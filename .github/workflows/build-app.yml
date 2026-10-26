@@ -1,0 +1,63 @@
+# Buduje aplikacje z app/ jako JEDEN plik do pobrania:
+#   STL-Tools.exe  (Windows)   STL-Tools-linux  (Linux)
+# i wrzuca oba na strone wydania "app-latest" (Releases w repozytorium).
+# render_grid.py jest zaszyty w srodku - nic wiecej nie trzeba pobierac.
+name: Build app
+
+on:
+  push:
+    paths:
+      - "app/**"
+      - ".github/workflows/build-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            out: STL-Tools.exe
+          - os: ubuntu-22.04
+            out: STL-Tools-linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sprawdz skladnie
+        run: python -m py_compile app/stl_tools.py app/render_grid.py
+      - name: PyInstaller
+        run: |
+          python -m pip install --upgrade pip pyinstaller==6.11.1
+          pyinstaller --onefile --windowed --name STL-Tools --add-data "app/render_grid.py:." app/stl_tools.py
+      - name: Nazwa pliku Linux
+        if: runner.os == 'Linux'
+        run: mv dist/STL-Tools dist/STL-Tools-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: dist/${{ matrix.out }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Wydanie app-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete app-latest --cleanup-tag --yes || true
+          gh release create app-latest out/STL-Tools.exe out/STL-Tools-linux \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "STL Tools (najnowsza wersja)" \
+            --notes "Zbudowane z galezi ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: pobierz STL-Tools.exe i uruchom. Linux: STL-Tools-linux (chmod +x). Python nie jest potrzebny, Blender tak."

@@ -5,6 +5,19 @@ Okienkowa wersja dwóch skryptów z `Scripts - version 1`: render plansz pogląd
 
 ## Uruchamianie
 
+### Najprościej: jeden plik, bez Pythona
+
+W repozytorium wejdź w **Releases → „STL Tools (najnowsza wersja)”** i pobierz:
+- **Windows:** `STL-Tools.exe`, potem dwuklik.
+- **Linux:** `STL-Tools-linux`, potem `chmod +x STL-Tools-linux` i uruchom.
+
+Plik buduje się automatycznie (GitHub Actions, `.github/workflows/build-app.yml`) po każdej
+zmianie w `app/`, a skrypt Blendera jest zaszyty w środku. Windows może przy pierwszym
+uruchomieniu pokazać ostrzeżenie SmartScreen, bo plik nie jest podpisany. Wtedy kliknij
+„Więcej informacji → Uruchom mimo to”.
+
+### Z plików źródłowych (wymaga Pythona)
+
 - **Windows:** dwuklik na `STL Tools.bat`.
   Potrzebny Python 3 z [python.org](https://www.python.org/downloads/) (tkinter jest w standardzie).
 - **Linux:** `./stl_tools.sh`.
@@ -21,10 +34,11 @@ Aplikację można trzymać gdziekolwiek. Nie trzeba jej kopiować do folderu z m
    *Wszystkie*, *Żaden*, *Bez PNG* (tylko te bez planszy), *Bez ZIP*.
    Domyślnie nie są zaznaczone `Stare`, `Robocze` i `Do sprawdzenia`, a foldery
    zaczynające się od `_` są zawsze pomijane.
-4. Wybierz, co zrobić: render, ZIP albo oba. Najpierw leci render wszystkich
-   zaznaczonych folderów, potem pakowanie.
-5. **Start.** Górny pasek pokazuje postęp etapu i szacowany czas, dolny pokazuje bieżący
-   folder (import, strona A, strona B, a przy ZIP megabajty).
+4. Wybierz, co zrobić: render, ZIP albo oba. Foldery idą po kolei: Blender robi
+   folder 1, a gdy skończy, folder 1 trafia do pakowania. W tym czasie Blender robi już
+   folder 2 i tak dalej. Foldery bez modeli są pakowane od razu.
+5. **Start.** Górny pasek pokazuje postęp całości i szacowany czas. Pod nim są dwa
+   paski obok siebie: Blender (import, strona A, strona B) i ZIP (megabajty).
    **Stop** przerywa pracę. Niedokończony ZIP jest usuwany.
 
 Pełne komunikaty Blendera są w zakładce **Log**.
