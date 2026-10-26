@@ -1,6 +1,7 @@
 # Buduje aplikacje z app/ jako JEDEN plik do pobrania:
 #   STL-Tools.exe  (Windows)   STL-Tools-linux  (Linux)
-# i wrzuca oba na strone wydania "app-latest" (Releases w repozytorium).
+# Wydanie "app-latest" (Releases) jest podmieniane tylko z galezi main -
+# na innych galeziach pliki zostaja jako artefakty przebiegu w Actions.
 # render_grid.py jest zaszyty w srodku - nic wiecej nie trzeba pobierac.
 name: Build app
 
@@ -45,6 +46,7 @@ jobs:
 
   release:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -58,6 +60,6 @@ jobs:
         run: |
           gh release delete app-latest --cleanup-tag --yes || true
           gh release create app-latest out/STL-Tools.exe out/STL-Tools-linux \
-            --target "$GITHUB_SHA" --prerelease \
+            --target "$GITHUB_SHA" --latest \
             --title "STL Tools (najnowsza wersja)" \
             --notes "Zbudowane z galezi ${GITHUB_REF_NAME}, commit ${GITHUB_SHA::7}. Windows: pobierz STL-Tools.exe i uruchom. Linux: STL-Tools-linux (chmod +x). Python nie jest potrzebny, Blender tak."
