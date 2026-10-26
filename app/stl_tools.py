@@ -286,7 +286,8 @@ class App(tk.Tk):
         self.var_blender = tk.StringVar(value=self.cfg.get("blender") or find_blender() or "")
         self.var_render = tk.BooleanVar(value=self.cfg.get("do_render", True))
         self.var_zip = tk.BooleanVar(value=self.cfg.get("do_zip", True))
-        self.var_overwrite = tk.BooleanVar(value=self.cfg.get("zip_overwrite", False))
+        self.var_overwrite_png = tk.BooleanVar(value=self.cfg.get("overwrite_png", True))
+        self.var_overwrite_zip = tk.BooleanVar(value=self.cfg.get("overwrite_zip", True))
         self.var_both = tk.BooleanVar(value=self.cfg.get("both_sides", True))
         self.var_res = tk.StringVar(value=str(self.cfg.get("res", 4000)))
         self.var_samples = tk.StringVar(value=str(self.cfg.get("samples", 128)))
@@ -435,10 +436,12 @@ class App(tk.Tk):
         ttk.Combobox(r1, textvariable=self.var_samples, width=5, state="readonly",
                      values=("16", "32", "64", "128", "256", "512")).pack(side="left", padx=(4, 0))
         ttk.Checkbutton(r1, text="both sides (A + B)", variable=self.var_both).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(r1, text="overwrite existing PNGs",
+                        variable=self.var_overwrite_png).pack(side="left", padx=(12, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
         ttk.Checkbutton(r2, text="Pack into ZIP", variable=self.var_zip).pack(side="left")
-        ttk.Checkbutton(r2, text="overwrite existing ZIPs", variable=self.var_overwrite).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(r2, text="overwrite existing ZIPs", variable=self.var_overwrite_zip).pack(side="left", padx=(12, 0))
 
         # --- progress
         p = self._panel(root, "Progress")
@@ -624,7 +627,8 @@ class App(tk.Tk):
             "blender": self.var_blender.get(),
             "do_render": self.var_render.get(),
             "do_zip": self.var_zip.get(),
-            "zip_overwrite": self.var_overwrite.get(),
+            "overwrite_png": self.var_overwrite_png.get(),
+            "overwrite_zip": self.var_overwrite_zip.get(),
             "both_sides": self.var_both.get(),
             "res": int(self.var_res.get()),
             "samples": int(self.var_samples.get()),
@@ -648,6 +652,13 @@ class App(tk.Tk):
             messagebox.showinfo("Nothing to do", "Tick at least one folder.")
             return
         render_names = [n for n in names if self.rows[n]["models"] > 0]
+        # without "overwrite existing PNGs" a folder that already has its sheet(s)
+        # is not sent to Blender at all - no import, no render (it is still zipped)
+        png_kept = []
+        if do_render and not self.var_overwrite_png.get():
+            both = self.var_both.get()
+            png_kept = [n for n in render_names if self._has_png(folder, n, both)]
+            render_names = [n for n in render_names if n not in png_kept]
         blender = self.var_blender.get().strip()
         if do_render and render_names and not os.path.isfile(blender):
             messagebox.showerror("Blender", "Blender is not at the given path.\n"
@@ -664,7 +675,7 @@ class App(tk.Tk):
             "blender": blender,
             "render": render_names if do_render else [],
             "zip": names if do_zip else [],
-            "overwrite": self.var_overwrite.get(),
+            "overwrite_zip": self.var_overwrite_zip.get(),
             "res": self.var_res.get(),
             "samples": self.var_samples.get(),
             "both": self.var_both.get(),
@@ -672,6 +683,8 @@ class App(tk.Tk):
         for n in names:
             if n in job["render"]:
                 self.set_status(n, "st_render", "queued")
+            elif n in png_kept:
+                self.set_status(n, "st_render", "already exists")
             elif do_render:
                 self.set_status(n, "st_render", "—")
             self.set_status(n, "st_zip", "queued" if do_zip else "")
@@ -681,6 +694,7 @@ class App(tk.Tk):
             r, z = n in job["render"], n in job["zip"]
             w_r = (0.85 if z else 1.0) if r else 0.0
             self.parts[n] = {"w_r": w_r, "w_z": 1.0 - w_r if z else 0.0, "r": 0.0, "z": 0.0}
+        self.png_kept = len(png_kept)
         self.t0 = time.time()
         self.cancel.clear()
         self.btn_start.configure(state="disabled")
@@ -689,7 +703,10 @@ class App(tk.Tk):
             b.error = False
             b.running = True
             b.set(0, "")
-        self.lbl_render.configure(text="Blender: —" if job["render"] else "Blender: off")
+        if job["render"]:
+            self.lbl_render.configure(text="Blender: —")
+        else:
+            self.lbl_render.configure(text="Blender: nothing to render" if do_render else "Blender: off")
         self.lbl_zip.configure(text="ZIP: —" if job["zip"] else "ZIP: off")
         self.worker = threading.Thread(target=self._run, args=(job,), daemon=True)
         self.worker.start()
@@ -850,6 +867,15 @@ class App(tk.Tk):
         self.emit("prog", "r", None, 1.0, "Blender: finished", "")
 
     @staticmethod
+    def _has_png(parent, name, both):
+        """True when the folder already has its sheet(s): name_A.png and
+        name_B.png for A + B, or name.png for one side."""
+        if both:
+            return all(os.path.isfile(os.path.join(parent, name + s))
+                       for s in ("_A.png", "_B.png"))
+        return os.path.isfile(os.path.join(parent, name + ".png"))
+
+    @staticmethod
     def _fresh_png(parent, name, since):
         for suf in ("_A.png", ".png"):
             p = os.path.join(parent, name + suf)
@@ -872,7 +898,7 @@ class App(tk.Tk):
                 continue
             label = "ZIP [%d/%d]: %s" % (k, total, name)
             dst = os.path.join(parent, name + ".zip")
-            if os.path.exists(dst) and not job["overwrite"]:
+            if os.path.exists(dst) and not job["overwrite_zip"]:
                 res[1] += 1
                 self.emit("status", name, "st_zip", "already exists")
                 self.emit("prog", "z", name, 1.0, label, "already exists")
@@ -1030,8 +1056,10 @@ class App(tk.Tk):
                     self.set_status(n, col, "stopped")
         parts = []
         r, z = results["render"], results["zip"]
-        if did_render:
-            parts.append("render: %d ok%s" % (r[0], ", %d errors" % r[1] if r[1] else ""))
+        if did_render or self.png_kept:
+            parts.append("render: %d ok%s%s" % (
+                r[0], ", %d skipped (PNG exists)" % self.png_kept if self.png_kept else "",
+                ", %d errors" % r[1] if r[1] else ""))
         if did_zip:
             parts.append("ZIP: %d zipped, %d skipped%s" % (
                 z[0], z[1], ", %d errors" % z[2] if z[2] else ""))
