@@ -1,14 +1,30 @@
 # Kontekst projektu
 
 Narzędzia wsadowe do biblioteki modeli 3D (figurki Warhammer, STL-e od sprzedawców).
-Dwa niezależne skrypty, oba uruchamiane dwuklikiem w folderze nadrzędnym:
+Dwie wersje:
 
-- `__RENDER.bat` + `__render_grid.py` — render folderów modeli jako plansze poglądowe (Blender)
-- `__ZIP.bat` — pakowanie podfolderów do archiwów ZIP
+- **`app/`**: aktualna, okienkowa aplikacja (tkinter, Windows + Linux). Wybór folderów,
+  render, potem ZIP, paski postępu. Opis jest w `app/README.md`.
+  - `app/stl_tools.py`: GUI. Tylko biblioteka standardowa, bez zależności.
+  - `app/render_grid.py`: skrypt Blendera, który aplikacja uruchamia przez
+    `blender --background --python render_grid.py -- --folder X --only nazwa ...`.
+    Logika renderu jest identyczna z wersją 1. Doszły tylko argumenty po `--` i linie
+    postępu `@@ ...` (TOTAL / FOLDER / IMPORT / RENDER / DONE), które GUI parsuje razem
+    z liniami Cycles `Sample X/Y`. **Zmiana formatu `@@` wymaga zmiany w `stl_tools.py`.**
+- **`Scripts - version 1/`**: pierwotne skrypty uruchamiane dwuklikiem w folderze
+  nadrzędnym, zostawione jako archiwum. Nowe zmiany heurystyk wprowadzaj w
+  `app/render_grid.py`.
+  - `__RENDER.bat` + `__render_grid.py`: render folderów modeli jako plansze poglądowe
+  - `__ZIP.bat`: pakowanie podfolderów do archiwów ZIP
+
+Poniższe decyzje dotyczą skryptu renderującego w obu wersjach.
 
 **Rozmowa po polsku.** Komentarze w kodzie też po polsku, ale **bez polskich znaków
 diakrytycznych** — skrypt leci przez `blender --background` w konsoli Windows i ogonki
 się tam sypią.
+
+**Każda wiadomość zaczyna się od imienia użytkownika: „Marcin".** Zawsze pierwsze słowo
+odpowiedzi to „Marcin", bez wyjątków.
 
 ---
 
@@ -158,8 +174,8 @@ Nie rozdzielać tego z powrotem na dwa przebiegi — to była optymalizacja czas
 - **Symulacja potwierdzająca własną hipotezę to słaby dowód.** Rozstrzygające są
   rendery użytkownika. Kilkakrotnie moje symulacje potwierdzały metodę, która na
   realnych plikach działała źle.
-- Po zmianie w `__render_grid.py` sprawdź składnię:
-  `python3 -m py_compile __render_grid.py`
+- Po zmianie w `app/render_grid.py` lub `app/stl_tools.py` sprawdź składnię:
+  `python3 -m py_compile app/render_grid.py app/stl_tools.py`
 - Skrypt uruchamia się przez `blender --background --python`, więc nie ma dostępu do
   interfejsu Blendera ani (w normalnym trybie) do `bpy.context.space_data`.
 - Blender 5.2 LTS wypisuje `DeprecationWarning: 'Material.use_nodes'` — to tylko
