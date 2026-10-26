@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
-title Render modeli 3D - plansza
+title Render 3D models - contact sheet
 cd /d "%~dp0"
 
 echo.
 echo  ============================================
-echo   RENDER PLANSZY Z MODELAMI 3D
+echo   RENDER A SHEET OF 3D MODELS
 echo  ============================================
 echo   Folder: %~dp0
 echo.
@@ -13,37 +13,37 @@ echo.
 set "BLENDER="
 
 rem ============================================================
-rem  RECZNA SCIEZKA - jesli auto-wykrywanie zawiedzie:
-rem  usun "rem " z ponizszej linii i wpisz swoja sciezke
+rem  MANUAL PATH - if auto-detection fails:
+rem  remove "rem " from the line below and enter your own path
 rem ============================================================
 set "BLENDER=X:\SteamLibrary\steamapps\common\Blender\blender.exe"
 
-rem --- jesli reczna sciezka wpisana ale plik nie istnieje, wyczysc i szukaj dalej
+rem --- if a manual path is set but the file does not exist, clear it and search
 if defined BLENDER if not exist "!BLENDER!" (
-    echo   [i] Wpisana sciezka nie istnieje, szukam automatycznie...
+    echo   [i] The given path does not exist, searching automatically...
     set "BLENDER="
 )
 
-rem --- nawiasy w ProgramFiles(x86) psuja bloki for, wiec kopiujemy do zmiennych
+rem --- the brackets in ProgramFiles(x86) break for blocks, so copy to variables
 set "PF=%ProgramFiles%"
 set "PF86=%ProgramFiles(x86)%"
 set "LAP=%LOCALAPPDATA%"
 
-rem --- 1. Blender w PATH?
+rem --- 1. Blender in PATH?
 if not defined BLENDER (
     for /f "delims=" %%i in ('where blender.exe 2^>nul') do (
         if not defined BLENDER set "BLENDER=%%i"
     )
 )
 
-rem --- 2. Typowe lokalizacje instalatora (najnowsza wersja pierwsza)
+rem --- 2. Typical installer locations (newest version first)
 if not defined BLENDER call :scan "%PF%\Blender Foundation"
 if not defined BLENDER call :scan "%PF86%\Blender Foundation"
 if not defined BLENDER call :scan "%LAP%\Programs\Blender Foundation"
 if not defined BLENDER call :scan "D:\Blender Foundation"
 if not defined BLENDER call :scan "E:\Blender Foundation"
 
-rem --- 3. Sciezki bezposrednie (Steam, portable)
+rem --- 3. Direct paths (Steam, portable)
 if not defined BLENDER call :try "%PF86%\Steam\steamapps\common\Blender\blender.exe"
 if not defined BLENDER call :try "%PF%\Steam\steamapps\common\Blender\blender.exe"
 if not defined BLENDER call :try "X:\SteamLibrary\steamapps\common\Blender\blender.exe"
@@ -55,11 +55,11 @@ if not defined BLENDER goto :notfound
 
 echo   Blender: !BLENDER!
 echo.
-echo   Renderowanie... (moze potrwac kilka minut)
-echo   Nie zamykaj tego okna.
+echo   Rendering... (may take a few minutes)
+echo   Do not close this window.
 echo.
 
-rem --- zapamietaj czas startu (w setnych sekundy od polnocy)
+rem --- remember the start time (in hundredths of a second since midnight)
 set "T=%TIME: =0%"
 for /f "tokens=1-4 delims=:.," %%a in ("%T%") do (
     set /a "T_START=(((1%%a-100)*60+(1%%b-100))*60+(1%%c-100))*100+(1%%d-100)"
@@ -67,7 +67,7 @@ for /f "tokens=1-4 delims=:.," %%a in ("%T%") do (
 
 "!BLENDER!" --background --python "%~dp0__render_grid.py"
 
-rem --- policz czas trwania
+rem --- compute the duration
 set "T=%TIME: =0%"
 for /f "tokens=1-4 delims=:.," %%a in ("%T%") do (
     set /a "T_END=(((1%%a-100)*60+(1%%b-100))*60+(1%%c-100))*100+(1%%d-100)"
@@ -79,7 +79,7 @@ set /a "T_M=(T_DIFF%%360000)/6000"
 set /a "T_S=(T_DIFF%%6000)/100"
 
 if !T_H! gtr 0 (
-    set "T_TXT=!T_H! godz !T_M! min !T_S! s"
+    set "T_TXT=!T_H! h !T_M! min !T_S! s"
 ) else (
     if !T_M! gtr 0 (
         set "T_TXT=!T_M! min !T_S! s"
@@ -90,18 +90,18 @@ if !T_H! gtr 0 (
 
 echo.
 echo  ============================================
-echo   ZAKONCZONO. Sprawdz komunikaty powyzej.
-echo   Czas: !T_TXT!
-echo   Pliki PNG znajdziesz w tym folderze.
+echo   FINISHED. Check the messages above.
+echo   Time: !T_TXT!
+echo   The PNG files are in this folder.
 echo  ============================================
 echo.
 pause
 exit /b 0
 
-rem ================== funkcje pomocnicze ======================
+rem ===================== helper functions =====================
 
 :scan
-rem skanuje folder w poszukiwaniu podfolderow z blender.exe (od najnowszej nazwy)
+rem scans a folder for subfolders containing blender.exe (newest name first)
 if not exist "%~1" exit /b 0
 for /f "delims=" %%V in ('dir /b /ad /o-n "%~1" 2^>nul') do (
     if not defined BLENDER (
@@ -115,16 +115,16 @@ if not defined BLENDER if exist "%~1" set "BLENDER=%~1"
 exit /b 0
 
 :notfound
-echo  [BLAD] Nie znaleziono Blendera automatycznie.
+echo  [ERROR] Blender was not found automatically.
 echo.
-echo   JAK NAPRAWIC:
-echo   1. Znajdz swoj blender.exe - najprosciej: kliknij prawym na skrot
-echo      Blendera, wybierz Wlasciwosci i zobacz pole "Element docelowy"
-echo      (albo "Otworz lokalizacje pliku")
-echo   2. Otworz ten plik RENDER.bat w Notatniku
-echo   3. Znajdz linie:   rem set "BLENDER=C:\Program Files\..."
-echo   4. Usun z niej "rem " na poczatku i wpisz swoja sciezke
-echo   5. Zapisz i uruchom ponownie
+echo   HOW TO FIX:
+echo   1. Find your blender.exe - easiest: right-click the Blender
+echo      shortcut, choose Properties and look at the "Target" field
+echo      (or "Open file location")
+echo   2. Open this __RENDER.bat file in Notepad
+echo   3. Find the line:   rem set "BLENDER=C:\Program Files\..."
+echo   4. Remove "rem " at its start and enter your own path
+echo   5. Save and run again
 echo.
 pause
 exit /b 1

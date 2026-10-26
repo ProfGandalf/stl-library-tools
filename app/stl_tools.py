@@ -1,18 +1,19 @@
 """
 ==========================================================================
- STL LIBRARY TOOLS - aplikacja z okienkiem (Windows + Linux)
+ STL LIBRARY TOOLS - desktop app (Windows + Linux)
 ==========================================================================
- Laczy dwa skrypty z "Scripts - version 1" w jedno okno:
-   1. RENDER - plansze pogladowe przez Blendera (render_grid.py obok)
-   2. ZIP    - pakowanie podfolderow do archiwow
+ Combines the two scripts from "Scripts - version 1" in one window:
+   1. RENDER - preview sheets via Blender (render_grid.py next to it)
+   2. ZIP    - packing subfolders into archives
 
- Wybierasz folder nadrzedny, zaznaczasz podfoldery, klikasz Start.
- Foldery ida potokiem: Blender robi folder 1, potem folder 1 sie pakuje,
- a w tym czasie Blender robi juz folder 2 - i tak dalej.
+ Pick the parent folder, tick the subfolders, click Start.
+ Folders go through a pipeline: Blender renders folder 1, then folder 1
+ gets zipped while Blender is already rendering folder 2 - and so on.
 
- Wymaga tylko Pythona 3.8+ z tkinter (na Windows jest w standardzie,
- na Linuksie: pakiet python3-tk) oraz Blendera do renderu.
- Uruchamianie: "STL Tools.bat" (Windows) albo stl_tools.sh (Linux).
+ Needs only Python 3.8+ with tkinter (bundled on Windows, on Linux:
+ the python3-tk package) and Blender for rendering.
+ Launch: "STL Tools.bat" (Windows) or stl_tools.sh (Linux), or the
+ single-file build STL-Tools.exe from the GitHub releases.
 ==========================================================================
 """
 
@@ -30,18 +31,19 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import tkinter.font as tkfont
 
-# spakowany do jednego pliku (PyInstaller): render_grid.py jest rozpakowany
-# do folderu tymczasowego sys._MEIPASS na czas dzialania programu
+# packed into one file (PyInstaller): render_grid.py is extracted
+# to the temporary folder sys._MEIPASS while the program runs
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 RENDER_SCRIPT = os.path.join(APP_DIR, "render_grid.py")
 
-# takie same rozszerzenia jak w render_grid.py
+# same extensions as in render_grid.py
 MODEL_EXTS = ('.stl', '.obj', '.ply', '.fbx', '.glb', '.gltf')
 
-# foldery domyslnie NIE zaznaczane (jak POMIN w __ZIP.bat)
+# folders NOT ticked by default (like SKIP in __ZIP.bat) - these are the
+# user's real folder names, so they stay as they are
 DEFAULT_SKIP = {"stare", "robocze", "do sprawdzenia"}
 
-# kolory - ten sam klimat co plansze: ciemne tlo + jasna kosc
+# colours - same mood as the sheets: dark background + light bone
 C_BG = "#1a1c21"
 C_PANEL = "#23262d"
 C_FIELD = "#2b2f37"
@@ -56,12 +58,12 @@ IS_WIN = sys.platform.startswith("win")
 
 
 def ui_font(size, bold=False):
-    """czcionka systemowa w danym rozmiarze (dziala dopiero po utworzeniu okna)"""
+    """system font in the given size (works only after the window is created)"""
     fam = tkfont.nametofont("TkDefaultFont").actual()["family"]
     return (fam, size, "bold") if bold else (fam, size)
 
 
-# ============================ konfiguracja ==============================
+# ============================ configuration =============================
 
 def config_path():
     if IS_WIN:
@@ -88,11 +90,11 @@ def save_config(cfg):
         pass
 
 
-# ======================== wyszukiwanie Blendera =========================
+# =========================== finding Blender ============================
 
 def _newest_in(folder, exe):
-    """folder z podfolderami wersji (np. Blender Foundation\\Blender 4.2) -
-    zwraca exe z najnowszej nazwy, tak jak :scan w __RENDER.bat"""
+    """folder with version subfolders (e.g. Blender Foundation\\Blender 4.2) -
+    returns the exe from the newest name, like :scan in __RENDER.bat"""
     try:
         subs = sorted(os.listdir(folder), reverse=True)
     except OSError:
@@ -139,10 +141,10 @@ def find_blender():
     return None
 
 
-# ========================== skan folderow ===============================
+# ============================ folder scan ===============================
 
 def scan_folder(parent):
-    """Zwraca liste slownikow z informacja o kazdym podfolderze."""
+    """Returns a list of dicts describing every subfolder."""
     out = []
     try:
         names = sorted(os.listdir(parent), key=str.lower)
@@ -173,7 +175,7 @@ def scan_folder(parent):
     return out
 
 
-# ==================== ladny pasek postepu (Canvas) ======================
+# ====================== fancy progress bar (Canvas) =====================
 
 def _mix(c1, c2, t):
     a = [int(c1[i:i + 2], 16) for i in (1, 3, 5)]
@@ -182,8 +184,8 @@ def _mix(c1, c2, t):
 
 
 class FancyBar(tk.Canvas):
-    """Zaokraglony pasek z procentem w srodku i przesuwajacym sie
-    polyskiem w trakcie pracy. Kolor przechodzi z bursztynu w zielen."""
+    """Rounded bar with the percentage inside and a moving shine while
+    working. The colour shifts from amber to green."""
 
     def __init__(self, master, height=26, **kw):
         super().__init__(master, height=height, bg=C_PANEL,
@@ -224,7 +226,7 @@ class FancyBar(tk.Canvas):
             else:
                 col = _mix(C_ACCENT, C_OK, self.value ** 3)
             self._rrect(2, 2, 2 + fw, h - 2, r - 1, fill=col, outline="")
-            # polysk w gornej polowie
+            # gloss on the upper half
             self._rrect(4, 3, 2 + fw - 2, h / 2, r / 2,
                         fill=_mix(col, "#ffffff", 0.25), outline="")
             if self.running and fw > 30:
@@ -247,17 +249,17 @@ class FancyBar(tk.Canvas):
         self.after(40, self._tick)
 
 
-# ============================ aplikacja =================================
+# ============================== the app =================================
 
 SAMPLE_RE = re.compile(r"Sample (\d+)/(\d+)")
-# duze rendery Cycles liczy kafelkami: "Rendered 1/4 Tiles, Sample 64/128"
+# Cycles renders large images in tiles: "Rendered 1/4 Tiles, Sample 64/128"
 TILES_RE = re.compile(r"(\d+)/(\d+) Tiles")
 
 
 def fmt_time(sec):
     sec = int(sec)
     if sec >= 3600:
-        return "%d godz %d min" % (sec // 3600, (sec % 3600) // 60)
+        return "%d h %d min" % (sec // 3600, (sec % 3600) // 60)
     if sec >= 60:
         return "%d min %d s" % (sec // 60, sec % 60)
     return "%d s" % sec
@@ -267,7 +269,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("STL Library Tools")
-        # wysoko, zeby lista folderow byla dluga - ale nie wyzej niz ekran
+        # tall, so the folder list is long - but not taller than the screen
         self.geometry("1000x%d" % min(900, self.winfo_screenheight() - 80))
         self.minsize(820, 640)
         self.configure(bg=C_BG)
@@ -277,7 +279,7 @@ class App(tk.Tk):
         self.worker = None
         self.proc = None
         self.cancel = threading.Event()
-        self.rows = {}          # nazwa -> slownik ze skanu
+        self.rows = {}          # name -> dict from the scan
         self.checked = set()
 
         self.var_folder = tk.StringVar(value=self.cfg.get("folder", ""))
@@ -296,7 +298,7 @@ class App(tk.Tk):
         if self.var_folder.get():
             self.refresh()
 
-    # ---------------------------------------------------------- wyglad
+    # ---------------------------------------------------------- styling
     def _style(self):
         for name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont"):
             try:
@@ -360,37 +362,37 @@ class App(tk.Tk):
         root.pack(fill="both", expand=True)
 
         ttk.Label(root, text="STL Library Tools", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(root, text="Render plansz poglądowych i pakowanie folderów do ZIP",
+        ttk.Label(root, text="Render preview sheets and pack folders into ZIP archives",
                   style="Bg.TLabel", foreground=C_DIM).pack(anchor="w", pady=(0, 8))
 
-        # --- sciezki
-        p = self._panel(root, "Ścieżki")
+        # --- paths
+        p = self._panel(root, "Paths")
         p.pack(fill="x", pady=(0, 8))
         g = ttk.Frame(p)
         g.pack(fill="x")
         g.columnconfigure(1, weight=1)
-        ttk.Label(g, text="Folder z modelami:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(g, text="Models folder:").grid(row=0, column=0, sticky="w", padx=(0, 8))
         ttk.Entry(g, textvariable=self.var_folder).grid(row=0, column=1, sticky="ew")
-        ttk.Button(g, text="Wybierz…", command=self.pick_folder).grid(row=0, column=2, padx=(6, 0))
-        ttk.Button(g, text="Odśwież", command=self.refresh).grid(row=0, column=3, padx=(6, 0))
+        ttk.Button(g, text="Browse…", command=self.pick_folder).grid(row=0, column=2, padx=(6, 0))
+        ttk.Button(g, text="Refresh", command=self.refresh).grid(row=0, column=3, padx=(6, 0))
         ttk.Label(g, text="Blender:").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
         ttk.Entry(g, textvariable=self.var_blender).grid(row=1, column=1, sticky="ew", pady=(6, 0))
-        ttk.Button(g, text="Wybierz…", command=self.pick_blender).grid(row=1, column=2, padx=(6, 0), pady=(6, 0))
-        ttk.Button(g, text="Szukaj", command=self.detect_blender).grid(row=1, column=3, padx=(6, 0), pady=(6, 0))
+        ttk.Button(g, text="Browse…", command=self.pick_blender).grid(row=1, column=2, padx=(6, 0), pady=(6, 0))
+        ttk.Button(g, text="Detect", command=self.detect_blender).grid(row=1, column=3, padx=(6, 0), pady=(6, 0))
 
-        # --- lista folderow i log jako dwie zakladki (oszczedza wysokosc okna)
+        # --- folder list and log as two tabs (saves window height)
         self.tabs = ttk.Notebook(root)
 
         p = ttk.Frame(self.tabs, padding=(12, 8))
-        self.tabs.add(p, text="  Podfoldery  ")
-        ttk.Label(p, text="Kliknij wiersz, żeby zaznaczyć / odznaczyć.",
+        self.tabs.add(p, text="  Subfolders  ")
+        ttk.Label(p, text="Click a row to tick / untick it.",
                   style="Dim.TLabel").pack(anchor="w", pady=(0, 6))
         bar = ttk.Frame(p)
         bar.pack(fill="x", pady=(0, 6))
-        ttk.Button(bar, text="Wszystkie", command=lambda: self.select("all")).pack(side="left")
-        ttk.Button(bar, text="Żaden", command=lambda: self.select("none")).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="Bez PNG", command=lambda: self.select("nopng")).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="Bez ZIP", command=lambda: self.select("nozip")).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="All", command=lambda: self.select("all")).pack(side="left")
+        ttk.Button(bar, text="None", command=lambda: self.select("none")).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Without PNG", command=lambda: self.select("nopng")).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Without ZIP", command=lambda: self.select("nozip")).pack(side="left", padx=(6, 0))
         self.lbl_count = ttk.Label(bar, text="", style="Dim.TLabel")
         self.lbl_count.pack(side="right")
 
@@ -401,11 +403,11 @@ class App(tk.Tk):
         for c, txt, w, anchor, stretch in (
                 ("chk", "", 34, "center", False),
                 ("name", "Folder", 260, "w", True),
-                ("models", "Modele", 80, "center", False),
+                ("models", "Models", 80, "center", False),
                 ("png", "PNG", 50, "center", False),
                 ("zip", "ZIP", 50, "center", False),
                 ("st_render", "Render", 170, "w", True),
-                ("st_zip", "Pakowanie", 150, "w", True)):
+                ("st_zip", "Zip", 150, "w", True)):
             self.tree.heading(c, text=txt)
             self.tree.column(c, width=w, anchor=anchor, stretch=stretch)
         self.tree.tag_configure("off", foreground=C_DIM)
@@ -418,34 +420,34 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         self.tree.bind("<Button-1>", self.on_click)
 
-        # --- zadania
-        p = self._panel(root, "Co zrobić — folder po folderze: render, potem ZIP "
-                            "(pakuje się w tle, gdy Blender robi następny)")
+        # --- tasks
+        p = self._panel(root, "What to do — folder by folder: render, then ZIP "
+                            "(zips in the background while Blender renders the next one)")
         p.pack(side="bottom", fill="x", pady=(0, 8))
         tasks_panel = p
         r1 = ttk.Frame(p)
         r1.pack(fill="x")
-        ttk.Checkbutton(r1, text="Render plansz (Blender)", variable=self.var_render).pack(side="left")
-        ttk.Label(r1, text="   rozdzielczość:").pack(side="left")
+        ttk.Checkbutton(r1, text="Render sheets (Blender)", variable=self.var_render).pack(side="left")
+        ttk.Label(r1, text="   resolution:").pack(side="left")
         ttk.Combobox(r1, textvariable=self.var_res, width=6, state="readonly",
                      values=("1000", "2000", "3000", "4000", "6000", "8000")).pack(side="left", padx=(4, 0))
-        ttk.Label(r1, text="  jakość (samples):").pack(side="left")
+        ttk.Label(r1, text="  quality (samples):").pack(side="left")
         ttk.Combobox(r1, textvariable=self.var_samples, width=5, state="readonly",
                      values=("16", "32", "64", "128", "256", "512")).pack(side="left", padx=(4, 0))
-        ttk.Checkbutton(r1, text="obie strony (A + B)", variable=self.var_both).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(r1, text="both sides (A + B)", variable=self.var_both).pack(side="left", padx=(12, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
-        ttk.Checkbutton(r2, text="Pakowanie do ZIP", variable=self.var_zip).pack(side="left")
-        ttk.Checkbutton(r2, text="nadpisuj istniejące ZIP-y", variable=self.var_overwrite).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(r2, text="Pack into ZIP", variable=self.var_zip).pack(side="left")
+        ttk.Checkbutton(r2, text="overwrite existing ZIPs", variable=self.var_overwrite).pack(side="left", padx=(12, 0))
 
-        # --- postep
-        p = self._panel(root, "Postęp")
+        # --- progress
+        p = self._panel(root, "Progress")
         p.pack(side="bottom", fill="x", before=tasks_panel)
-        self.lbl_stage = ttk.Label(p, text="Gotowy.", style="Dim.TLabel")
+        self.lbl_stage = ttk.Label(p, text="Ready.", style="Dim.TLabel")
         self.lbl_stage.pack(anchor="w")
         self.bar_total = FancyBar(p, height=28)
         self.bar_total.pack(fill="x", pady=(4, 8))
-        # dwa paski obok siebie - Blender i ZIP pracuja jednoczesnie
+        # two bars side by side - Blender and ZIP work at the same time
         two = ttk.Frame(p)
         two.pack(fill="x")
         two.columnconfigure(0, weight=1, uniform="b")
@@ -467,7 +469,7 @@ class App(tk.Tk):
         self.btn_stop = ttk.Button(btns, text="■  Stop", command=self.stop, state="disabled")
         self.btn_stop.pack(side="left", padx=(8, 0))
 
-        # --- log w drugiej zakladce
+        # --- log in the second tab
         self.log_frame = ttk.Frame(self.tabs, padding=(12, 8))
         self.tabs.add(self.log_frame, text="  Log  ")
         self.log = tk.Text(self.log_frame, height=6, bg="#121317", fg=C_DIM,
@@ -481,22 +483,22 @@ class App(tk.Tk):
         self.log.pack(side="left", fill="both", expand=True)
         lsb.pack(side="right", fill="y")
 
-        # zakladki pakowane na koncu - dostaja tylko miejsce, ktore zostalo,
-        # wiec przy malym oknie kurczy sie lista, a nie paski postepu
+        # tabs are packed last - they only get the space that is left,
+        # so in a small window the list shrinks, not the progress bars
         self.tabs.pack(fill="both", expand=True, pady=(0, 8))
 
-    # ------------------------------------------------------- akcje UI
+    # ------------------------------------------------------- UI actions
 
     def pick_folder(self):
         d = filedialog.askdirectory(initialdir=self.var_folder.get() or os.path.expanduser("~"),
-                                    title="Folder z podfolderami modeli")
+                                    title="Folder with model subfolders")
         if d:
             self.var_folder.set(os.path.normpath(d))
             self.refresh()
 
     def pick_blender(self):
-        types = [("Blender", "blender.exe"), ("Wszystkie", "*.*")] if IS_WIN else [("Wszystkie", "*")]
-        f = filedialog.askopenfilename(title="Wskaż plik Blendera", filetypes=types)
+        types = [("Blender", "blender.exe"), ("All files", "*.*")] if IS_WIN else [("All files", "*")]
+        f = filedialog.askopenfilename(title="Select the Blender executable", filetypes=types)
         if f:
             self.var_blender.set(os.path.normpath(f))
 
@@ -505,12 +507,12 @@ class App(tk.Tk):
         if b:
             self.var_blender.set(b)
         else:
-            messagebox.showwarning("Blender", "Nie znalazłem Blendera automatycznie.\n"
-                                   "Wskaż plik ręcznie przyciskiem „Wybierz…”.")
+            messagebox.showwarning("Blender", "Could not find Blender automatically.\n"
+                                   "Select the file manually with the “Browse…” button.")
 
     def refresh(self):
         folder = self.var_folder.get().strip()
-        # zaznaczenia pamietane tylko w obrebie tego samego folderu
+        # ticks are remembered only within the same folder
         same = os.path.normcase(folder) == getattr(self, "_scanned", None)
         keep = set(self.checked) if same else None
         self._scanned = os.path.normcase(folder)
@@ -530,9 +532,9 @@ class App(tk.Tk):
             name = it["name"]
             self.rows[name] = it
             if it["underscore"]:
-                status = "pomijany (nazwa od _)"
+                status = "skipped (name starts with _)"
             elif it["models"] == 0:
-                status = "tylko 3MF" if it["mf3"] else "brak modeli"
+                status = "3MF only" if it["mf3"] else "no models"
             else:
                 status = ""
             selectable = not it["underscore"]
@@ -555,7 +557,7 @@ class App(tk.Tk):
             self.tree.set(name, "chk", "☑" if name in self.checked else "☐")
 
     def _update_count(self):
-        self.lbl_count.configure(text="zaznaczone: %d / %d" % (len(self.checked), len(self.rows)))
+        self.lbl_count.configure(text="ticked: %d / %d" % (len(self.checked), len(self.rows)))
 
     def on_click(self, event):
         if self.worker:
@@ -590,7 +592,7 @@ class App(tk.Tk):
         self._update_count()
 
     def set_status(self, name, col, text):
-        """col: "st_render" albo "st_zip"; kolor wiersza wynika z obu kolumn"""
+        """col: "st_render" or "st_zip"; the row colour follows both columns"""
         if not self.tree.exists(name):
             return
         self.tree.set(name, col, text)
@@ -601,7 +603,7 @@ class App(tk.Tk):
             tag = "busy"
             if col == "st_render":
                 self.tree.see(name)
-        elif "✔" in both or "już jest" in both:
+        elif "✔" in both or "already exists" in both:
             tag = "ok"
         else:
             tag = None
@@ -610,7 +612,7 @@ class App(tk.Tk):
     def log_line(self, text, tag=None):
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n", tag)
-        # ograniczenie dlugosci logu
+        # cap the log length
         if int(self.log.index("end-1c").split(".")[0]) > 5000:
             self.log.delete("1.0", "1000.0")
         self.log.see("end")
@@ -635,24 +637,24 @@ class App(tk.Tk):
             return
         folder = self.var_folder.get().strip()
         if not os.path.isdir(folder):
-            messagebox.showerror("Folder", "Wybierz istniejący folder z modelami.")
+            messagebox.showerror("Folder", "Select an existing models folder.")
             return
         do_render, do_zip = self.var_render.get(), self.var_zip.get()
         if not (do_render or do_zip):
-            messagebox.showinfo("Nic do zrobienia", "Zaznacz render, ZIP albo oba.")
+            messagebox.showinfo("Nothing to do", "Tick render, ZIP or both.")
             return
-        names = [n for n in self.rows if n in self.checked]  # kolejnosc jak na liscie
+        names = [n for n in self.rows if n in self.checked]  # same order as the list
         if not names:
-            messagebox.showinfo("Nic do zrobienia", "Zaznacz przynajmniej jeden folder.")
+            messagebox.showinfo("Nothing to do", "Tick at least one folder.")
             return
         render_names = [n for n in names if self.rows[n]["models"] > 0]
         blender = self.var_blender.get().strip()
         if do_render and render_names and not os.path.isfile(blender):
-            messagebox.showerror("Blender", "Nie ma Blendera pod podaną ścieżką.\n"
-                                 "Wskaż blender ręcznie albo kliknij „Szukaj”.")
+            messagebox.showerror("Blender", "Blender is not at the given path.\n"
+                                 "Select it manually or click “Detect”.")
             return
         if do_render and not os.path.isfile(RENDER_SCRIPT):
-            messagebox.showerror("Brak pliku", "Nie znalazłem render_grid.py obok aplikacji:\n"
+            messagebox.showerror("Missing file", "Could not find render_grid.py next to the app:\n"
                                  + RENDER_SCRIPT)
             return
         self._save()
@@ -669,11 +671,11 @@ class App(tk.Tk):
         }
         for n in names:
             if n in job["render"]:
-                self.set_status(n, "st_render", "w kolejce")
+                self.set_status(n, "st_render", "queued")
             elif do_render:
                 self.set_status(n, "st_render", "—")
-            self.set_status(n, "st_zip", "w kolejce" if do_zip else "")
-        # postep calosci: kazdy folder to suma jego czesci (render ma wieksza wage)
+            self.set_status(n, "st_zip", "queued" if do_zip else "")
+        # overall progress: each folder is the sum of its parts (render weighs more)
         self.parts = {}
         for n in names:
             r, z = n in job["render"], n in job["zip"]
@@ -687,8 +689,8 @@ class App(tk.Tk):
             b.error = False
             b.running = True
             b.set(0, "")
-        self.lbl_render.configure(text="Blender: —" if job["render"] else "Blender: wyłączony")
-        self.lbl_zip.configure(text="ZIP: —" if job["zip"] else "ZIP: wyłączony")
+        self.lbl_render.configure(text="Blender: —" if job["render"] else "Blender: off")
+        self.lbl_zip.configure(text="ZIP: —" if job["zip"] else "ZIP: off")
         self.worker = threading.Thread(target=self._run, args=(job,), daemon=True)
         self.worker.start()
 
@@ -702,24 +704,24 @@ class App(tk.Tk):
                 p.terminate()
             except Exception:
                 pass
-        self.lbl_stage.configure(text="Zatrzymywanie…")
+        self.lbl_stage.configure(text="Stopping…")
 
     def on_close(self):
         if self.worker:
-            if not messagebox.askyesno("Praca w toku", "Trwa praca. Przerwać i zamknąć?"):
+            if not messagebox.askyesno("Work in progress", "Work is still running. Stop and close?"):
                 return
             self.stop()
         self._save()
         self.destroy()
 
-    # ------------------------------------------- watek roboczy (w tle)
+    # ------------------------------------------ worker threads (background)
     def emit(self, *ev):
         self.events.put(ev)
 
     def _run(self, job):
-        """Potok: Blender robi foldery po kolei, a kazdy skonczony folder
-        od razu trafia do kolejki ZIP. Pakowanie leci w osobnym watku,
-        wiec folder 1 sie pakuje, kiedy Blender juz robi folder 2."""
+        """Pipeline: Blender renders folders one by one, and every finished
+        folder goes straight to the ZIP queue. Zipping runs in a separate
+        thread, so folder 1 is zipped while Blender already renders folder 2."""
         results = {"render": [0, 0], "zip": [0, 0, 0]}
         t0 = time.time()
         zip_q = queue.Queue()
@@ -736,21 +738,21 @@ class App(tk.Tk):
                                       args=(job, zip_q, results["zip"]), daemon=True)
             zipper.start()
         try:
-            # foldery, ktorych Blender nie robi (bez modeli / render wylaczony)
-            # nie maja na co czekac - od razu do pakowania
+            # folders Blender does not render (no models / render off)
+            # have nothing to wait for - straight to zipping
             for n in job["zip"]:
                 if n not in job["render"]:
                     to_zip(n)
             if job["render"]:
                 self._run_render(job, results["render"], to_zip)
-            # Blender skonczyl (albo padl) - reszta i tak idzie do ZIP
+            # Blender finished (or crashed) - the rest goes to ZIP anyway
             if not self.cancel.is_set():
                 for n in job["zip"]:
                     to_zip(n)
         except Exception as e:
-            self.emit("log", "!!! Błąd: %s" % e, "err")
+            self.emit("log", "!!! Error: %s" % e, "err")
         if zipper:
-            zip_q.put(None)         # koniec kolejki
+            zip_q.put(None)         # end of queue
             zipper.join()
         self.emit("finished", results, time.time() - t0, self.cancel.is_set(),
                   bool(job["render"]), bool(job["zip"]))
@@ -765,7 +767,7 @@ class App(tk.Tk):
             cmd += ["--only", n]
         self.emit("log", "> " + " ".join('"%s"' % c if " " in c else c for c in cmd), "head")
 
-        flags = 0x08000000 if IS_WIN else 0     # CREATE_NO_WINDOW - bez czarnej konsoli
+        flags = 0x08000000 if IS_WIN else 0     # CREATE_NO_WINDOW - no black console window
         env = dict(os.environ, PYTHONUNBUFFERED="1")
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      cwd=job["folder"], creationflags=flags, env=env)
@@ -773,10 +775,10 @@ class App(tk.Tk):
         total = len(names)
         t_start = time.time() - 2
         sides = 2 if job["both"] else 1
-        idx = 0                 # ktory folder (1..total)
+        idx = 0                 # which folder (1..total)
         cur = None
-        imp = 0.0               # postep importu 0..1
-        rend = -1               # ktory render w folderze (0 = A, 1 = B)
+        imp = 0.0               # import progress 0..1
+        rend = -1               # which render in the folder (0 = A, 1 = B)
         samp = 0.0
 
         def push():
@@ -784,10 +786,10 @@ class App(tk.Tk):
                 return
             if rend < 0:
                 frac = 0.2 * imp
-                txt = "import modeli"
+                txt = "importing models"
             else:
                 frac = 0.2 + 0.8 * (rend + samp) / sides
-                side = ("strona A" if rend == 0 else "strona B") if sides == 2 else "render"
+                side = ("side A" if rend == 0 else "side B") if sides == 2 else "render"
                 txt = "%s — %d%%" % (side, samp * 100)
             self.emit("prog", "r", cur, frac, "Blender [%d/%d]: %s" % (idx, total, cur), txt)
 
@@ -802,7 +804,7 @@ class App(tk.Tk):
                     idx = int(parts[1])
                     cur = parts[2] if len(parts) > 2 else "?"
                     imp, rend, samp = 0.0, -1, 0.0
-                    self.emit("status", cur, "st_render", "renderuje…")
+                    self.emit("status", cur, "st_render", "rendering…")
                     self.emit("log", "── Blender [%d/%d] %s" % (idx, total, cur), "head")
                 elif kind == "IMPORT":
                     imp = int(parts[1]) / max(1, int(parts[2]))
@@ -811,13 +813,13 @@ class App(tk.Tk):
                     samp = 0.0
                 elif kind == "DONE":
                     name = parts[2] if len(parts) > 2 else cur
-                    # "ok" od skryptu to za malo - main() wraca bez renderu,
-                    # gdy nic sie nie zaimportowalo; liczy sie swiezy PNG na dysku
+                    # "ok" from the script is not enough - main() returns without
+                    # rendering when nothing was imported; a fresh PNG on disk counts
                     ok = parts[1] == "ok" and self._fresh_png(job["folder"], name, t_start)
                     res[0 if ok else 1] += 1
-                    self.emit("status", name, "st_render", "✔ gotowe" if ok else "✖ błąd")
+                    self.emit("status", name, "st_render", "✔ done" if ok else "✖ error")
                     self.emit("rowflag", name, "png", ok)
-                    self.emit("prog", "r", name, 1.0, "Blender: czeka na następny", "")
+                    self.emit("prog", "r", name, 1.0, "Blender: waiting for the next one", "")
                     cur = None
                     on_done(name)
                 push()
@@ -828,24 +830,24 @@ class App(tk.Tk):
                 t = TILES_RE.search(line)
                 if t:
                     s = (int(t.group(1)) + s) / max(1, int(t.group(2)))
-                # nigdy do tylu (adaptive sampling / nowy kafelek)
+                # never backwards (adaptive sampling / new tile)
                 samp = max(samp, min(1.0, s))
                 push()
                 continue
             if line.startswith("Fra:"):
-                continue        # szum Blendera (pamiec, czas) - nie zasmiecamy logu
+                continue        # Blender noise (memory, time) - keep it out of the log
             if line.strip():
-                tag = "err" if ("BLAD" in line or "Error" in line or "!!!" in line) else None
+                tag = "err" if ("ERROR" in line or "Error" in line or "!!!" in line) else None
                 self.emit("log", line, tag)
         code = self.proc.wait()
         self.proc = None
         if cur and not self.cancel.is_set():
-            # Blender padl w trakcie folderu
+            # Blender died in the middle of a folder
             res[1] += 1
-            self.emit("status", cur, "st_render", "✖ Blender przerwał")
+            self.emit("status", cur, "st_render", "✖ Blender aborted")
         if code != 0 and not self.cancel.is_set():
-            self.emit("log", "!!! Blender zakończył się kodem %s" % code, "err")
-        self.emit("prog", "r", None, 1.0, "Blender: skończył", "")
+            self.emit("log", "!!! Blender exited with code %s" % code, "err")
+        self.emit("prog", "r", None, 1.0, "Blender: finished", "")
 
     @staticmethod
     def _fresh_png(parent, name, since):
@@ -856,12 +858,12 @@ class App(tk.Tk):
         return False
 
     def _zip_worker(self, job, zip_q, res):
-        """Osobny watek: pakuje foldery w kolejnosci, w jakiej Blender je oddaje."""
+        """Separate thread: zips folders in the order Blender hands them over."""
         parent = job["folder"]
         total = len(job["zip"])
         k = 0
         while True:
-            self.emit("prog", "z", None, 0.0, "ZIP: czeka na folder z Blendera", "")
+            self.emit("prog", "z", None, 0.0, "ZIP: waiting for a folder from Blender", "")
             name = zip_q.get()
             if name is None:
                 break
@@ -872,30 +874,30 @@ class App(tk.Tk):
             dst = os.path.join(parent, name + ".zip")
             if os.path.exists(dst) and not job["overwrite"]:
                 res[1] += 1
-                self.emit("status", name, "st_zip", "już jest")
-                self.emit("prog", "z", name, 1.0, label, "już jest")
-                self.emit("log", "[=] ZIP już jest: %s.zip" % name)
+                self.emit("status", name, "st_zip", "already exists")
+                self.emit("prog", "z", name, 1.0, label, "already exists")
+                self.emit("log", "[=] ZIP already exists: %s.zip" % name)
                 continue
-            self.emit("status", name, "st_zip", "pakuje…")
-            self.emit("log", "[+] pakuję: %s" % name)
+            self.emit("status", name, "st_zip", "zipping…")
+            self.emit("log", "[+] zipping: %s" % name)
             try:
                 done = self._zip_one(parent, name, os.path.join(parent, name), dst, label)
             except Exception as e:
                 done = False
-                self.emit("log", "    [BŁĄD] %s: %s" % (name, e), "err")
+                self.emit("log", "    [ERROR] %s: %s" % (name, e), "err")
             if done:
                 res[0] += 1
-                self.emit("status", name, "st_zip", "✔ gotowe")
+                self.emit("status", name, "st_zip", "✔ done")
                 self.emit("rowflag", name, "zip", True)
             elif self.cancel.is_set():
-                self.emit("status", name, "st_zip", "przerwano")
+                self.emit("status", name, "st_zip", "stopped")
             else:
                 res[2] += 1
-                self.emit("status", name, "st_zip", "✖ błąd")
-        self.emit("prog", "z", None, 1.0, "ZIP: skończył", "")
+                self.emit("status", name, "st_zip", "✖ error")
+        self.emit("prog", "z", None, 1.0, "ZIP: finished", "")
 
     def _zip_one(self, parent, name, src, dst, label):
-        # lista plikow z rozmiarami - postep liczony po bajtach
+        # file list with sizes - progress is counted in bytes
         entries = []
         for root, dirs, files in os.walk(src):
             dirs.sort()
@@ -914,7 +916,7 @@ class App(tk.Tk):
         last = 0.0
         tmp = dst + ".part"
         try:
-            # w archiwum jest folder "nazwa/..." - tak samo jak z tar / 7-Zip w __ZIP.bat
+            # the archive holds a "name/..." folder - same as tar / 7-Zip in __ZIP.bat
             with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=5,
                                  allowZip64=True) as zf:
                 for full, arc, size, is_dir in entries:
@@ -943,7 +945,7 @@ class App(tk.Tk):
                             if self.cancel.is_set():
                                 raise InterruptedError
             os.replace(tmp, dst)
-            self.emit("prog", "z", name, 1.0, label, "gotowe")
+            self.emit("prog", "z", name, 1.0, label, "done")
             return True
         except InterruptedError:
             return False
@@ -954,7 +956,7 @@ class App(tk.Tk):
                 except OSError:
                     pass
 
-    # ------------------------------------- odbior zdarzen w watku UI
+    # ------------------------------------ receiving events in the UI thread
     def _poll(self):
         try:
             while True:
@@ -966,7 +968,7 @@ class App(tk.Tk):
         self.after(80, self._poll)
 
     def _overall(self):
-        """(ulamek calosci, ile folderow w pelni skonczonych)"""
+        """(overall fraction, how many folders are fully done)"""
         if not self.parts:
             return 0.0, 0
         frac = done = 0
@@ -993,7 +995,7 @@ class App(tk.Tk):
             if name in self.parts:
                 self.parts[name][which] = max(self.parts[name][which], frac)
                 total, done = self._overall()
-                self.bar_total.set(total, "%d / %d folderów gotowych  ·  %d%%" % (
+                self.bar_total.set(total, "%d / %d folders done  ·  %d%%" % (
                     done, len(self.parts), round(total * 100)))
         elif kind == "status":
             self.set_status(ev[1], ev[2], ev[3])
@@ -1010,9 +1012,9 @@ class App(tk.Tk):
             return
         el = time.time() - self.t0
         frac, _ = self._overall()
-        txt = "Pracuję   ·   minęło %s" % fmt_time(el)
+        txt = "Working   ·   elapsed %s" % fmt_time(el)
         if 0.02 < frac < 1.0 and el > 5:
-            txt += "   ·   zostało ok. %s" % fmt_time(el * (1 - frac) / frac)
+            txt += "   ·   about %s left" % fmt_time(el * (1 - frac) / frac)
         self.lbl_stage.configure(text=txt)
 
     def _finished(self, results, elapsed, cancelled, did_render, did_zip):
@@ -1021,31 +1023,31 @@ class App(tk.Tk):
         self.btn_stop.configure(state="disabled")
         for b in self.bars:
             b.running = False
-        busy = ("w kolejce", "renderuje…", "pakuje…")
+        busy = ("queued", "rendering…", "zipping…")
         for n in self.rows:
             for col in ("st_render", "st_zip"):
                 if self.tree.set(n, col) in busy:
-                    self.set_status(n, col, "przerwano")
+                    self.set_status(n, col, "stopped")
         parts = []
         r, z = results["render"], results["zip"]
         if did_render:
-            parts.append("render: %d ok%s" % (r[0], ", %d błędów" % r[1] if r[1] else ""))
+            parts.append("render: %d ok%s" % (r[0], ", %d errors" % r[1] if r[1] else ""))
         if did_zip:
-            parts.append("ZIP: %d spakowano, %d pominięto%s" % (
-                z[0], z[1], ", %d błędów" % z[2] if z[2] else ""))
+            parts.append("ZIP: %d zipped, %d skipped%s" % (
+                z[0], z[1], ", %d errors" % z[2] if z[2] else ""))
         summary = " · ".join(parts)
         errors = r[1] + z[2]
         if cancelled:
-            head = "Przerwano"
+            head = "Stopped"
             self.bar_total.error = True
         elif errors:
-            head = "Zakończono z błędami"
+            head = "Finished with errors"
             self.bar_total.error = True
         else:
-            head = "Zakończono"
+            head = "Finished"
             self.bar_total.value = 1.0
         self.bar_total.set(self.bar_total.value, "%s — %s" % (head, summary))
-        self.lbl_stage.configure(text="%s w %s" % (head, fmt_time(elapsed)))
+        self.lbl_stage.configure(text="%s in %s" % (head, fmt_time(elapsed)))
         self.log_line("═══ %s (%s): %s ═══" % (head, fmt_time(elapsed), summary),
                       "err" if errors or cancelled else "ok")
         self.bell()

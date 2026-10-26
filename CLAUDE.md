@@ -1,183 +1,196 @@
-# Kontekst projektu
+# Project context
 
-Narzędzia wsadowe do biblioteki modeli 3D (figurki Warhammer, STL-e od sprzedawców).
-Dwie wersje:
+Batch tools for a 3D model library (Warhammer miniatures, STL files from vendors).
+Two versions:
 
-- **`app/`**: aktualna, okienkowa aplikacja (tkinter, Windows + Linux). Wybór folderów,
-  potok: Blender robi folder N, a w tym czasie osobny wątek pakuje folder N-1 do ZIP.
-  Paski postępu. Opis jest w `app/README.md`.
-  - `app/stl_tools.py`: GUI. Tylko biblioteka standardowa, bez zależności.
-  - `app/render_grid.py`: skrypt Blendera, który aplikacja uruchamia przez
-    `blender --background --python render_grid.py -- --folder X --only nazwa ...`.
-    Logika renderu jest identyczna z wersją 1. Doszły tylko argumenty po `--` i linie
-    postępu `@@ ...` (TOTAL / FOLDER / IMPORT / RENDER / DONE), które GUI parsuje razem
-    z liniami Cycles `Sample X/Y`. **Zmiana formatu `@@` wymaga zmiany w `stl_tools.py`.**
-- **`Scripts - version 1/`**: pierwotne skrypty uruchamiane dwuklikiem w folderze
-  nadrzędnym, zostawione jako archiwum. Nowe zmiany heurystyk wprowadzaj w
-  `app/render_grid.py`.
-  - `__RENDER.bat` + `__render_grid.py`: render folderów modeli jako plansze poglądowe
-  - `__ZIP.bat`: pakowanie podfolderów do archiwów ZIP
+- **`app/`**: the current desktop app (tkinter, Windows + Linux). Folder selection,
+  pipeline: Blender renders folder N while a separate thread zips folder N-1.
+  Progress bars. Described in `app/README.md`.
+  - `app/stl_tools.py`: GUI. Standard library only, no dependencies.
+  - `app/render_grid.py`: Blender script the app runs as
+    `blender --background --python render_grid.py -- --folder X --only name ...`.
+    Render logic is identical to version 1. The only additions are the arguments after
+    `--` and the `@@ ...` progress lines (TOTAL / FOLDER / IMPORT / RENDER / DONE), which
+    the GUI parses together with Cycles `Sample X/Y` lines. **Changing the `@@` format
+    requires a matching change in `stl_tools.py`.** The GUI also marks log lines
+    containing `ERROR` / `Error` / `!!!` as errors.
+- **`Scripts - version 1/`**: the original scripts, run by double-click inside the
+  parent folder, kept as an archive. Make new heuristic changes in `app/render_grid.py`.
+  - `__RENDER.bat` + `__render_grid.py`: renders model folders as preview sheets
+  - `__ZIP.bat`: packs subfolders into ZIP archives
+- **Release:** `.github/workflows/build-app.yml` builds `STL-Tools.exe` and
+  `STL-Tools-linux` with PyInstaller (render script bundled) and updates the
+  `app-latest` release in place, only from `main`. The README links to
+  `releases/latest/download/<file>`, so asset names must not change.
 
-Poniższe decyzje dotyczą skryptu renderującego w obu wersjach.
+The decisions below apply to the render script in both versions.
 
-**Rozmowa po polsku.** Komentarze w kodzie też po polsku, ale **bez polskich znaków
-diakrytycznych** — skrypt leci przez `blender --background` w konsoli Windows i ogonki
-się tam sypią.
+**Everything in English.** Conversation, code, comments, UI text, console messages,
+commit messages, PR titles and descriptions, documentation — all in English. Keep code
+comments ASCII-only (no special characters): the script runs through
+`blender --background` in the Windows console, which garbles non-ASCII characters.
 
-**Każda wiadomość zaczyna się od imienia użytkownika: „Marcin".** Zawsze pierwsze słowo
-odpowiedzi to „Marcin", bez wyjątków.
-
----
-
-## Jak to działa
-
-Skrypt renderujący wrzuca się do folderu zawierającego podfoldery modeli. Dla każdego
-podfolderu generuje dwa pliki PNG: `nazwa_A.png` i `nazwa_B.png` — ten sam układ, ale
-na B wszystkie modele obrócone o 180° wokół osi X. Dzięki temu każdą część widać
-z obu stron, bez zgadywania, która strona jest „lepsza".
-
-Kluczowa własność: obrót o 180° wokół X **nie zmienia wymiarów obrysu** (X ten sam,
-Y lustrzany, Z ten sam), więc pakowanie liczy się raz i części są dokładnie w tych
-samych miejscach na obu planszach. Łatwo je porównywać przełączając podgląd.
-
-Ustawienia są na górze `__render_grid.py`, podzielone na 7 kategorii. Dodatkowo
-`_settings.json` wrzucony do konkretnego folderu nadpisuje je tylko dla niego.
+**Every message starts with the user's name: "Marcin".** The first word of every
+reply is always "Marcin", no exceptions.
 
 ---
 
-## Decyzje, których NIE cofać
+## How it works
 
-Każda z poniższych to naprawiony błąd albo świadomy wybór po testach na realnych
-plikach. Przed zmianą którejkolwiek — zapytaj użytkownika.
+The render script goes into a folder containing model subfolders. For every subfolder it
+produces two PNG files: `name_A.png` and `name_B.png` — the same layout, but on B every
+model is rotated 180° around the X axis. That way every part is visible from both sides,
+without guessing which side is "better".
 
-### 1. Obroty tylko przez `rotate_world()`, nigdy `rotation_euler[i] +=`
+Key property: a 180° rotation around X **does not change the footprint dimensions**
+(X the same, Y mirrored, Z the same), so packing is computed once and the parts sit in
+exactly the same places on both sheets. They are easy to compare by switching between
+the images.
 
-Blender składa kąty Eulera w kolejności XYZ (`R = Rz @ Ry @ Rx`), więc składowa X
-działa **pierwsza**. Jeśli model został wcześniej położony obrotem wokół Y, to dodanie
-180° do składowej X **nie odwróci go na drugą stronę** — obróci go w płaszczyźnie,
-bo obrót Y przemapował oś X.
+Settings are at the top of `render_grid.py`, split into 7 categories. In addition,
+a `_settings.json` dropped into a specific folder overrides them for that folder only.
 
-To powodowało realny błąd: wersja B pokazywała model obrócony bokiem zamiast spodem,
-a `AUTO_FLIP` i `ROTATIONS` robiły co innego, niż deklarowały.
+> Note: `_settings.json`, `ORIENT_METHOD`, `ORIENT_BIAS` and `VIEW_MODE = "auto"`
+> described in this file are **not** in the code in this repository (only `FLIP_METHOD`
+> `"density"` / `"depth"` and `VIEW_MODE` `"top"` / `"iso"` exist). They may live in a
+> local copy that was never committed — ask the user before assuming either way.
 
-`rotate_world()` składa macierz świata (`R @ matrix_world`) i jest odporna na kolejność
-wcześniejszych obrotów.
+---
 
-### 2. Pakowanie używa prawdziwego bboxa, nie percentyli
+## Decisions NOT to reverse
 
-`robust_bounds()` (percentyle 1–99% położenia wierzchołków) istnieje po to, żeby
-zabłąkany wierzchołek nie rozdmuchiwał kadru. Ale **do pakowania trzeba prawdziwych
-wymiarów**.
+Each of these is a fixed bug or a deliberate choice after testing on real files.
+Ask the user before changing any of them.
 
-Przy dużych płaskich płytach (ściany, panele) geometria jest gęsta w środku i rzadka
-na krawędziach — percentyle obcinały wtedy realne brzegi, zaniżając wymiary nawet
-o 40%. Efekt: sloty za małe, sąsiednie części nachodziły na siebie.
+### 1. Rotations only through `rotate_world()`, never `rotation_euler[i] +=`
 
-Teraz `dims` liczy się z `world_bbox()`, a percentyle są tylko bezpiecznikiem: jeśli
-prawdziwy bbox jest ponad 3× większy od przyciętego, bierzemy przycięty i wypisujemy
-nazwę pliku w konsoli.
+Blender composes Euler angles in XYZ order (`R = Rz @ Ry @ Rx`), so the X component
+acts **first**. If a model was previously laid down by a rotation around Y, adding
+180° to the X component **will not flip it over** — it rotates it in-plane, because
+the Y rotation remapped the X axis.
 
-**Środkowanie w slocie musi używać tej samej miary co wymiary slotu** — inaczej część
-przesunie się względem swojego miejsca i wejdzie na sąsiada.
+This caused a real bug: version B showed the model rotated sideways instead of from
+below, and `AUTO_FLIP` and `ROTATIONS` did something other than what they claimed.
 
-### 3. Kamera ma jawnie ustawiany `clip_start` / `clip_end`
+`rotate_world()` composes the world matrix (`R @ matrix_world`) and is immune to the
+order of earlier rotations.
 
-Bez tego Blender obcina domyślnym zasięgiem i render wychodzi **pusty** — widać samo
-tło świata, bez modeli i bez podłogi. Modele mają footprinty rzędu 100+ jednostek,
-a kamerę stawiamy w odległości `grid_diag * 3`, czyli przy większych zestawach setki
-albo tysiące jednostek.
+### 2. Packing uses the real bbox, not percentiles
 
-Objaw: jednolity szary kwadrat przy dużych folderach, przy małych wszystko OK.
-Konsola wypisuje teraz `Kamera: odleglosc X, zasieg Y - Z` do diagnozy.
+`robust_bounds()` (1–99% percentiles of vertex positions) exists so that a stray
+vertex does not blow up the frame. But **packing needs the real dimensions**.
 
-### 4. Orientacja — przetestowano 5 metod, zostajemy przy `"flat"`
+With large flat plates (walls, panels) geometry is dense in the middle and sparse at
+the edges — percentiles then cut off real edges, understating dimensions by up to 40%.
+Result: slots too small, neighbouring parts overlapping.
 
-**Nie proponuj nowych heurystyk orientacji bez wyraźnej prośby.** Przerobiliśmy:
+Now `dims` comes from `world_bbox()`, and percentiles are only a safety net: if the
+real bbox is more than 3× larger than the trimmed one, the trimmed one is used and the
+file name is printed to the console.
 
-| `ORIENT_METHOD` | zasada | wynik |
+**Centring in the slot must use the same measure as the slot dimensions** — otherwise
+the part shifts relative to its place and runs into its neighbour.
+
+### 3. The camera has `clip_start` / `clip_end` set explicitly
+
+Without this Blender clips at its default range and the render comes out **empty** —
+only the world background, no models and no floor. Models have footprints of 100+
+units, and the camera is placed `grid_diag * 3` away, i.e. hundreds or thousands of
+units for larger sets.
+
+Symptom: a plain grey square for large folders, everything fine for small ones.
+The console now prints `Camera: distance X, range Y - Z` for diagnosis.
+
+### 4. Orientation — 5 methods tested, we stay with `"flat"`
+
+**Do not propose new orientation heuristics unless explicitly asked.** We went through:
+
+| `ORIENT_METHOD` | principle | result |
 |---|---|---|
-| `"flat"` | najkrótsza oś do góry + `AUTO_FLIP` | **używana** |
-| `"detail"` | 6 ścian, gęstość siatki | gorzej |
-| `"normals"` | 6 ścian, rozrzut normalnych ważony polem | gorzej |
-| `"raster"` | 6 kierunków, mapa głębi z zasłanianiem | gorzej |
-| `"entropy"` | entropia widoku (Vázquez) | gorzej |
+| `"flat"` | shortest axis up + `AUTO_FLIP` | **in use** |
+| `"detail"` | 6 faces, mesh density | worse |
+| `"normals"` | 6 faces, area-weighted normal spread | worse |
+| `"raster"` | 6 directions, depth map with occlusion | worse |
+| `"entropy"` | viewpoint entropy (Vázquez) | worse |
 
-Sam `AUTO_FLIP` ma dwa warianty (`FLIP_METHOD`): `"density"` (używany) i `"depth"`.
-Wariant `"depth"` był przerabiany trzykrotnie — pierwsza wersja mierzyła rozrzut
-wysokości i konsekwentnie wybierała **wydrążone tyły**, bo wielka gładka misa ma
-większą amplitudę niż drobny relief. Poprawka: lokalny gradient (częstotliwość zmian),
-nie amplituda. Potem doszła kara za wklęsłość.
+`AUTO_FLIP` itself has two variants (`FLIP_METHOD`): `"density"` (in use) and `"depth"`.
+The `"depth"` variant was reworked three times — the first version measured height
+spread and consistently picked **hollow backs**, because a big smooth bowl has a larger
+amplitude than fine relief. Fix: local gradient (frequency of change), not amplitude.
+Then a concavity penalty was added.
 
-Wszystkie metody zostały w kodzie jako opcje — **nic nie usuwać**.
+All methods stay in the code as options — **do not delete anything**.
 
-**Wniosek użytkownika, trafniejszy od moich hipotez:** orientacja zapisana w pliku to
-świadoma decyzja rzeźbiarza, a „przód" to pojęcie znaczeniowe, nie geometryczne. Żadna
-miara liczona z geometrii tego nie odgadnie. Przy organicznych częściach (Nurgle, obła
-rzeźba, brak płaskich ścian) automatyka wyraźnie szkodzi.
+**The user's conclusion, more accurate than my hypotheses:** the orientation saved in
+the file is a deliberate decision by the sculptor, and "front" is a semantic concept,
+not a geometric one. No measure computed from geometry can guess it. With organic
+parts (Nurgle, rounded sculpts, no flat faces) automation clearly does harm.
 
-Dlatego istnieje `ORIENT_BIAS` (domyślnie 1.25) — model jest obracany dopiero, gdy inna
-ściana jest o tyle razy lepsza od obecnej góry. Symulacja: przy `BIAS = 1.0` skrypt
-psuł 35 na 80 dobrze ustawionych modeli; przy 1.15+ psuł zero, naprawiając nadal
-wszystkie faktycznie złe.
+That is why `ORIENT_BIAS` exists (default 1.25) — a model is rotated only when another
+face is that many times better than the current top. Simulation: with `BIAS = 1.0`
+the script broke 35 of 80 correctly placed models; with 1.15+ it broke none, while
+still fixing all the ones that were actually wrong.
 
-Przy częściach rzeźbionych z obu stron wybór jest z natury arbitralny — i właśnie
-dlatego renderujemy A i B.
+For parts sculpted on both sides the choice is inherently arbitrary — which is exactly
+why we render A and B.
 
-Wyjątki poprawia się ręcznie przez `ROTATIONS` (klucz = nazwa pliku, ze ścieżką
-podfolderu gdy `RECURSIVE = True`, np. `"Arms/lewa.stl"`). Do odczytania nazw służy
-`SHOW_LABELS = True`.
+Exceptions are fixed by hand through `ROTATIONS` (key = file name, including the
+subfolder path when `RECURSIVE = True`, e.g. `"Arms/left.stl"`). Use
+`SHOW_LABELS = True` to read the names.
 
-### 5. `VIEW_MODE = "top"` jest domyślny, ale ma znane ograniczenie
+### 5. `VIEW_MODE = "top"` is the default, but has a known limitation
 
-Na **stojącą figurkę** patrząc z góry widzisz czubek głowy — dlatego foldery z gotowymi
-miniaturkami wyglądają źle, a foldery z luźnymi częściami dobrze.
+Looking at a **standing miniature** from above you see the top of its head — which is
+why folders of finished miniatures look bad, while folders of loose parts look good.
 
-Jest zaimplementowany tryb `"auto"` (wykrywa po medianie wysokość/szerokość, próg
-`AUTO_ISO_RATIO = 1.2`) oraz `"iso"` (kamera z rogu pod kątem). Użytkownik świadomie
-wrócił do sztywnego `"top"`. **Nie włączaj `"auto"` bez pytania.**
+An `"auto"` mode (detects by median height/width, threshold `AUTO_ISO_RATIO = 1.2`)
+and `"iso"` (camera from a corner at an angle) are implemented. The user deliberately
+went back to a fixed `"top"`. **Do not enable `"auto"` without asking.**
 
-### 6. Jeden import, dwa rendery
+### 6. One import, two renders
 
-`main()` importuje modele i pakuje układ raz, renderuje A, obraca wszystko, renderuje B.
-Nie rozdzielać tego z powrotem na dwa przebiegi — to była optymalizacja czasu
-(znikł drugi import i drugie liczenie `AUTO_FLIP`).
-
----
-
-## Rzeczy, o które użytkownik już pytał
-
-- **3MF** nie jest obsługiwany (Blender nie importuje natywnie). Pliki są pomijane,
-  nazwy wypisywane w konsoli. Obejście: eksport do STL ze slicera.
-  Obsługiwane: STL, OBJ, PLY, FBX, GLB/GLTF.
-- **Równoległe instancje Blendera** dają tylko ~1,2–1,4×, nie 2× — jedno GPU obsługuje
-  rendery po kolei, zysk bierze się wyłącznie z nakładania fazy CPU (import, pakowanie,
-  denoising) jednej instancji na fazę GPU drugiej. Karta: RTX 4070 Ti Super, 16 GB.
-- **Skala modeli** — `NORMALIZE = False` to świadomy wybór, użytkownik chce prawdziwych
-  proporcji. Nie włączać normalizacji jako „naprawy" czegokolwiek.
-- **`ALLOW_ROTATE`** obraca części o 90° przy pakowaniu — ciaśniej, ale miecze i topory
-  leżą poziomo zamiast pionowo. Zmierzony kompromis: wypełnienie kadru 39% → 72%,
-  pole układu mniejsze o 45%.
-- **Kolory** siedzą w `make_clay_material()` i w funkcji podłogi (szukaj `Base Color`),
-  nie w sekcji ustawień. Obecnie: ciemne tło `(0.10, 0.11, 0.13)` + jasna kość
-  `(0.72, 0.70, 0.66)`. Kolor modelu występuje w **dwóch** miejscach (BSDF i węzeł RGB
-  zasilający miks AO) — zmieniać oba, inaczej się rozjedzie przy włączonym AO.
-- **Światła** to `SUN`, nie `AREA` — są niezależne od skali sceny, co jest kluczowe przy
-  `NORMALIZE = False`. Wysokie nachylenie (70°+) skraca cienie, żeby nie rozlewały się
-  na sąsiadów przy ciasnym upakowaniu.
+`main()` imports the models and packs the layout once, renders A, flips everything,
+renders B. Do not split this back into two passes — it was a time optimisation
+(the second import and the second `AUTO_FLIP` computation went away).
 
 ---
 
-## Styl pracy
+## Things the user has already asked about
 
-- Przed zmianą heurystyki — sprawdź ją liczbowo na symulacji i **pokaż wynik**.
-  W historii tego projektu kilka „teoretycznie lepszych" metod wypadło w praktyce
-  gorzej.
-- **Symulacja potwierdzająca własną hipotezę to słaby dowód.** Rozstrzygające są
-  rendery użytkownika. Kilkakrotnie moje symulacje potwierdzały metodę, która na
-  realnych plikach działała źle.
-- Po zmianie w `app/render_grid.py` lub `app/stl_tools.py` sprawdź składnię:
+- **3MF** is not supported (Blender does not import it natively). Files are skipped and
+  their names printed to the console. Workaround: export to STL from the slicer.
+  Supported: STL, OBJ, PLY, FBX, GLB/GLTF.
+- **Parallel Blender instances** give only ~1.2–1.4×, not 2× — one GPU handles renders
+  one after another, and the gain comes only from overlapping the CPU phase (import,
+  packing, denoising) of one instance with the GPU phase of the other.
+  Card: RTX 4070 Ti Super, 16 GB.
+- **Model scale** — `NORMALIZE = False` is a deliberate choice, the user wants real
+  proportions. Do not turn normalisation on as a "fix" for anything.
+- **`ALLOW_ROTATE`** rotates parts by 90° when packing — tighter, but swords and axes
+  lie horizontally instead of vertically. Measured trade-off: frame fill 39% → 72%,
+  layout area 45% smaller.
+- **Colours** live in `make_clay_material()` and in the floor code (search for
+  `Base Color`), not in the settings section. Currently: dark background
+  `(0.10, 0.11, 0.13)` + light bone `(0.72, 0.70, 0.66)`. The model colour appears in
+  **two** places (BSDF and the RGB node feeding the AO mix) — change both, otherwise
+  they drift apart with AO enabled.
+- **Lights** are `SUN`, not `AREA` — they do not depend on scene scale, which is crucial
+  with `NORMALIZE = False`. A steep tilt (70°+) shortens shadows so they do not spill
+  onto neighbours in a tight layout.
+
+---
+
+## Working style
+
+- Before changing a heuristic — check it numerically on a simulation and **show the
+  result**. In this project's history several "theoretically better" methods turned out
+  worse in practice.
+- **A simulation confirming your own hypothesis is weak evidence.** The user's renders
+  are decisive. Several times my simulations confirmed a method that worked badly on
+  real files.
+- After changing `app/render_grid.py` or `app/stl_tools.py`, check the syntax:
   `python3 -m py_compile app/render_grid.py app/stl_tools.py`
-- Skrypt uruchamia się przez `blender --background --python`, więc nie ma dostępu do
-  interfejsu Blendera ani (w normalnym trybie) do `bpy.context.space_data`.
-- Blender 5.2 LTS wypisuje `DeprecationWarning: 'Material.use_nodes'` — to tylko
-  informacja, nic nie psuje.
+- The script runs through `blender --background --python`, so it has no access to the
+  Blender UI nor (in normal mode) to `bpy.context.space_data`.
+- Blender 5.2 LTS prints `DeprecationWarning: 'Material.use_nodes'` — informational only,
+  it breaks nothing.

@@ -1,57 +1,57 @@
-# STL Library Tools — aplikacja
+# STL Library Tools — app
 
-Okienkowa wersja dwóch skryptów z `Scripts - version 1`: render plansz poglądowych
-(Blender) i pakowanie podfolderów do ZIP. Działa na Windows i Linuksie.
+Desktop version of the two scripts in `Scripts - version 1`: rendering preview sheets
+(Blender) and packing subfolders into ZIP archives. Works on Windows and Linux.
 
-## Uruchamianie
+## Running it
 
-### Najprościej: jeden plik, bez Pythona
+### Easiest: one file, no Python
 
-W repozytorium wejdź w **Releases → „STL Tools (najnowsza wersja)”** i pobierz:
-- **Windows:** `STL-Tools.exe`, potem dwuklik.
-- **Linux:** `STL-Tools-linux`, potem `chmod +x STL-Tools-linux` i uruchom.
+In the repository open **Releases → “STL Tools (latest version)”** and download:
+- **Windows:** `STL-Tools.exe`, then double-click it.
+- **Linux:** `STL-Tools-linux`, then `chmod +x STL-Tools-linux` and run it.
 
-Plik buduje się automatycznie (GitHub Actions, `.github/workflows/build-app.yml`) po każdej
-zmianie w `app/`, a skrypt Blendera jest zaszyty w środku. Windows może przy pierwszym
-uruchomieniu pokazać ostrzeżenie SmartScreen, bo plik nie jest podpisany. Wtedy kliknij
-„Więcej informacji → Uruchom mimo to”.
+The file is built automatically (GitHub Actions, `.github/workflows/build-app.yml`) after
+every change in `app/` on `main`, with the Blender script bundled inside. On first launch
+Windows may show a SmartScreen warning because the file is not signed. In that case click
+“More info → Run anyway”.
 
-### Z plików źródłowych (wymaga Pythona)
+### From the source files (needs Python)
 
-- **Windows:** dwuklik na `STL Tools.bat`.
-  Potrzebny Python 3 z [python.org](https://www.python.org/downloads/) (tkinter jest w standardzie).
+- **Windows:** double-click `STL Tools.bat`.
+  Needs Python 3 from [python.org](https://www.python.org/downloads/) (tkinter is included).
 - **Linux:** `./stl_tools.sh`.
-  Potrzebny `python3-tk` (Ubuntu/Debian: `sudo apt install python3-tk`).
+  Needs `python3-tk` (Ubuntu/Debian: `sudo apt install python3-tk`).
 
-Aplikację można trzymać gdziekolwiek. Nie trzeba jej kopiować do folderu z modelami.
+The app can live anywhere. It does not need to be copied into the models folder.
 
-## Jak używać
+## How to use
 
-1. **Folder z modelami**: folder nadrzędny, w którym każdy podfolder to jeden zestaw
-   (tak jak wcześniej przy `.bat`).
-2. **Blender** jest wyszukiwany automatycznie. Jeśli go nie znajdzie, wskaż plik ręcznie.
-3. Na liście zaznacz podfoldery do przerobienia. Szybkie przyciski:
-   *Wszystkie*, *Żaden*, *Bez PNG* (tylko te bez planszy), *Bez ZIP*.
-   Domyślnie nie są zaznaczone `Stare`, `Robocze` i `Do sprawdzenia`, a foldery
-   zaczynające się od `_` są zawsze pomijane.
-4. Wybierz, co zrobić: render, ZIP albo oba. Foldery idą po kolei: Blender robi
-   folder 1, a gdy skończy, folder 1 trafia do pakowania. W tym czasie Blender robi już
-   folder 2 i tak dalej. Foldery bez modeli są pakowane od razu.
-5. **Start.** Górny pasek pokazuje postęp całości i szacowany czas. Pod nim są dwa
-   paski obok siebie: Blender (import, strona A, strona B) i ZIP (megabajty).
-   **Stop** przerywa pracę. Niedokończony ZIP jest usuwany.
+1. **Models folder**: the parent folder in which every subfolder is one set
+   (same as with the old `.bat` files).
+2. **Blender** is detected automatically. If it is not found, select the file by hand.
+3. Tick the subfolders to process. Quick buttons:
+   *All*, *None*, *Without PNG* (only those without a sheet), *Without ZIP*.
+   `Stare`, `Robocze` and `Do sprawdzenia` are unticked by default, and folders
+   starting with `_` are always skipped.
+4. Choose what to do: render, ZIP or both. Folders go one by one: Blender renders
+   folder 1, and when it is done, folder 1 is zipped while Blender already renders
+   folder 2, and so on. Folders without models are zipped right away.
+5. **Start.** The top bar shows overall progress and the estimated time left. Below it
+   are two bars side by side: Blender (import, side A, side B) and ZIP (megabytes).
+   **Stop** stops the work, and an unfinished ZIP is deleted.
 
-Pełne komunikaty Blendera są w zakładce **Log**.
-Ustawienia (ścieżki, opcje) zapisują się same:
+Full Blender output is in the **Log** tab.
+Settings (paths, options) are saved automatically:
 `%APPDATA%\stl-library-tools\config.json` / `~/.config/stl-library-tools/config.json`.
 
-## Pliki
+## Files
 
-| plik | rola |
+| file | role |
 |---|---|
-| `stl_tools.py` | aplikacja (tkinter, tylko biblioteka standardowa) |
-| `render_grid.py` | skrypt Blendera: ten sam co w wersji 1, plus argumenty i linie postępu `@@` |
-| `STL Tools.bat` / `stl_tools.sh` | uruchamianie |
+| `stl_tools.py` | the app (tkinter, standard library only) |
+| `render_grid.py` | Blender script: same as version 1, plus arguments and `@@` progress lines |
+| `STL Tools.bat` / `stl_tools.sh` | launchers |
 
-Wszystkie ustawienia renderu poza rozdzielczością, jakością i A/B (orientacja,
-`ROTATIONS`, kolory itd.) nadal są na górze `render_grid.py`.
+All render settings other than resolution, quality and A/B (orientation, `ROTATIONS`,
+colours, etc.) are still at the top of `render_grid.py`.

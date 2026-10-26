@@ -1,41 +1,42 @@
 # STL Library Tools
 
-Narzędzia do biblioteki modeli 3D (figurki, STL-e). Aplikacja z okienkiem, która:
+Tools for a 3D model library (miniatures, STL files). A desktop app that:
 
-- **renderuje plansze poglądowe** przez Blendera: każdy podfolder z modelami daje dwa
-  obrazy PNG (`nazwa_A.png` i `nazwa_B.png`), na których te same części są pokazane z obu stron;
-- **pakuje podfoldery do ZIP**: folder pakuje się w tle, gdy Blender robi już następny.
+- **renders preview sheets** with Blender: every subfolder of models produces two
+  PNG images (`name_A.png` and `name_B.png`) showing the same parts from both sides;
+- **packs subfolders into ZIP archives**: a folder is zipped in the background while
+  Blender is already rendering the next one.
 
-## ⬇️ Pobierz
+## ⬇️ Download
 
-**[Najnowsza wersja (Releases)](https://github.com/ProfGandalf/stl-library-tools/releases/latest)**
+**[Latest version (Releases)](https://github.com/ProfGandalf/stl-library-tools/releases/latest)**
 
-Bezpośrednie linki:
+Direct links:
 
-| system | plik |
+| system | file |
 |---|---|
 | **Windows** | [**STL-Tools.exe**](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools.exe) |
-| Linux | [STL-Tools-linux](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools-linux) (po pobraniu `chmod +x`) |
+| Linux | [STL-Tools-linux](https://github.com/ProfGandalf/stl-library-tools/releases/latest/download/STL-Tools-linux) (run `chmod +x` after downloading) |
 
-To jeden plik, bez instalacji i bez Pythona. Potrzebny jest tylko
+It is a single file, with no installation and no Python needed. The only requirement is
 [Blender](https://www.blender.org/download/).
 
-> Windows może przy pierwszym uruchomieniu pokazać ostrzeżenie SmartScreen, bo plik nie
-> jest podpisany. Kliknij **„Więcej informacji” → „Uruchom mimo to”**.
+> On first launch Windows may show a SmartScreen warning because the file is not signed.
+> Click **“More info” → “Run anyway”**.
 
-## Jak używać
+## How to use
 
-1. Uruchom `STL-Tools.exe`.
-2. **Folder z modelami**: wskaż folder nadrzędny, w którym każdy podfolder to jeden zestaw.
-3. **Blender** jest wyszukiwany automatycznie. Jeśli go nie znajdzie, wskaż `blender.exe` ręcznie.
-4. Zaznacz podfoldery, wybierz render i/lub ZIP, kliknij **Start**.
+1. Run `STL-Tools.exe`.
+2. **Models folder**: select the parent folder in which every subfolder is one set.
+3. **Blender** is detected automatically. If it is not found, select `blender.exe` by hand.
+4. Tick the subfolders, choose render and/or ZIP, click **Start**.
 
-Szczegóły są w [app/README.md](app/README.md).
+Details are in [app/README.md](app/README.md).
 
-## Zawartość repozytorium
+## Repository contents
 
-| folder | co to jest |
+| folder | what it is |
 |---|---|
-| [`app/`](app) | aktualna aplikacja: źródła (`stl_tools.py`, `render_grid.py`) |
-| [`Scripts - version 1/`](Scripts%20-%20version%201) | pierwsze wersje: `.bat` + skrypt Blendera, uruchamiane dwuklikiem w folderze z modelami |
-| `.github/workflows/build-app.yml` | automatyczne budowanie `.exe` i plików wydania po każdej zmianie w `app/` na `main` |
+| [`app/`](app) | the current app: sources (`stl_tools.py`, `render_grid.py`) |
+| [`Scripts - version 1/`](Scripts%20-%20version%201) | first versions: `.bat` + Blender script, run by double-click inside the models folder |
+| `.github/workflows/build-app.yml` | builds the `.exe` and the release files automatically after every change in `app/` on `main` |
