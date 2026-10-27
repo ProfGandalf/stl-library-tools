@@ -47,7 +47,17 @@ The app can live anywhere. It does not need to be copied into the models folder.
 
    Inside a set folder (e.g. `Dreadnought/Arms`) every subfolder is part of that set,
    whatever its name.
-4. Choose what to do: render, ZIP or both. Both "overwrite" options are ticked by default:
+4. Choose what to do: render, ZIP or both. The render has two modes:
+   - **full sheets**: the real Cycles render, `name_A.png` + `name_B.png` (resolution,
+     quality and A/B apply here).
+   - **quick preview**, to recognise a set at a glance:
+     - `name_preview_A.png`: the same layout, rendered with Blender's fast Workbench
+       engine at 1500 px, one side (seconds instead of minutes);
+     - `name_preview_B.png`: the largest picture found in the set folder, usually the
+       vendor's promo render, converted to PNG if needed. No picture, no `_preview_B`.
+
+   The *Preview* column shows which sets already have `name_preview_A.png`.
+   Both "overwrite" options are ticked by default: Both "overwrite" options are ticked by default:
    - **overwrite existing PNGs** off: a folder that already has its sheet(s)
      (`name_A.png` + `name_B.png`, or `name.png` for one side) is not sent to Blender
      at all, so there is no import and no render. It is still zipped.

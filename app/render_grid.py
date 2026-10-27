@@ -94,8 +94,12 @@ def _parse_args():
          --res PX           resolution (square)
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
+         --preview          quick preview instead of the full sheets:
+                            name_preview_A.png (fast Workbench render of the
+                            same layout) + name_preview_B.png (largest image
+                            found in the set folder, e.g. the vendor's render)
     """
-    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES
+    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW
     if '--' not in sys.argv:
         return
     args = sys.argv[sys.argv.index('--') + 1:]
@@ -117,6 +121,9 @@ def _parse_args():
             i += 1
         elif a == '--one-side':
             RENDER_BOTH_SIDES = False
+        elif a == '--preview':
+            PREVIEW = True
+            RENDER_BOTH_SIDES = False
         i += 1
 
 
@@ -125,6 +132,29 @@ def progress(*parts):
     because with redirected output Python buffers whole blocks."""
     print("@@ " + " ".join(str(p) for p in parts), flush=True)
 
+
+_last_stats = [None]
+
+
+def _print_render_stats(*args):
+    """Blender 5 no longer prints per-sample progress in background mode, so the
+    app could not show how far a render is. This render_stats handler gets the
+    same status text the Blender window shows (e.g. "Mem: 4M | Sample 16/128",
+    or "Rendered 1/4 Tiles, Sample 16/128" for big images) and prints it
+    whenever the sample count changes; the app reads the "Sample X/Y" part."""
+    text = args[0] if args and isinstance(args[0], str) else ""
+    if "Sample" not in text:
+        return
+    sample = text.split("Sample", 1)[1].strip()
+    if sample != _last_stats[0]:
+        _last_stats[0] = sample
+        print("  Render stats: " + text, flush=True)
+
+
+try:
+    bpy.app.handlers.render_stats.append(_print_render_stats)
+except Exception:
+    pass
 
 if not FOLDER:
     FOLDER = _script_dir()
@@ -141,6 +171,12 @@ RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
                             # The layout is identical on both, so it is easy to
                             # compare and pick the better side. False = one file.
 SAMPLES       = 128         # render quality (more = nicer + slower)
+
+PREVIEW       = False       # True: quick preview mode (see --preview) - Workbench
+                            # instead of Cycles, one side, PREVIEW_RES; the layout
+                            # is the same as on the full sheet
+PREVIEW_RES   = 1500        # preview resolution (px, square)
+IMAGE_EXTS    = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff')
 
 # Aspect ratio of the model layout (width:height). 1.0 = square.
 # None -> match the image aspect automatically (RES_X / RES_Y).
@@ -573,6 +609,70 @@ def setup_lighting():
     sun("Rim",  (75, 0, 180),  0.9)    # back light, separates from background
 
 
+def setup_preview(scene, clay, floor_mat):
+    """Quick preview: Workbench (the viewport renderer) instead of Cycles -
+    no sampling, no denoising, about a second per image. Same colours as the
+    full sheet: Workbench uses the materials' viewport colour, so it is set
+    to the same bone / dark values as the node colours."""
+    scene.render.engine = 'BLENDER_WORKBENCH'
+    scene.render.resolution_x = PREVIEW_RES
+    scene.render.resolution_y = PREVIEW_RES
+    clay.diffuse_color = (0.72, 0.70, 0.66, 1.0)        # light bone
+    floor_mat.diffuse_color = (0.10, 0.11, 0.13, 1.0)   # dark background
+    if scene.world:
+        scene.world.color = (0.10, 0.11, 0.13)
+    sh = scene.display.shading
+    for attr, val in (("light", 'STUDIO'), ("color_type", 'MATERIAL'),
+                      ("show_cavity", True), ("cavity_type", 'BOTH'),
+                      ("show_shadows", False)):
+        try:
+            setattr(sh, attr, val)
+        except Exception:
+            pass
+    try:
+        scene.display.render_aa = '8'
+        scene.view_settings.view_transform = 'Standard'
+    except Exception:
+        pass
+
+
+def find_vendor_image(folder):
+    """Largest image file inside the set folder (vendor renders are usually
+    the biggest pictures in a pack). Returns its path or None."""
+    best, best_size = None, 0
+    for root, dirs, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith(IMAGE_EXTS):
+                p = os.path.join(root, f)
+                try:
+                    size = os.path.getsize(p)
+                except OSError:
+                    continue
+                if size > best_size:
+                    best, best_size = p, size
+    return best
+
+
+def save_as_png(src, dst):
+    """Copies a PNG as is, converts any other image to PNG (pixels unchanged,
+    no colour management applied)."""
+    if src.lower().endswith('.png'):
+        import shutil
+        shutil.copyfile(src, dst)
+        return
+    img = bpy.data.images.load(src)
+    try:
+        # Blender loads image data lazily - touch the pixels so save() has data
+        if not img.has_data:
+            img.reload()
+            _ = img.pixels[0]
+        img.filepath_raw = dst
+        img.file_format = 'PNG'
+        img.save()
+    finally:
+        bpy.data.images.remove(img)
+
+
 def main(FOLDER, OUTPUT):
     if not os.path.isdir(FOLDER):
         print(f"!!! Folder does not exist: {FOLDER}")
@@ -906,8 +1006,10 @@ def main(FOLDER, OUTPUT):
         scene.view_settings.view_transform = 'AgX'
     except Exception:
         pass
+    if PREVIEW:
+        setup_preview(scene, clay, fmat)
 
-    if USE_GPU:
+    if USE_GPU and not PREVIEW:
         try:
             prefs = bpy.context.preferences.addons['cycles'].preferences
             prefs.get_devices()
@@ -1026,13 +1128,31 @@ def run_all():
     for i, (name, d) in enumerate(subs, 1):
         progress("FOLDER", i, name)
         # the sheet goes next to the set folder (inside its group, if any)
-        out = os.path.join(os.path.dirname(d), os.path.basename(d) + ".png")
-        sides = " (_A + _B)" if RENDER_BOTH_SIDES else ""
+        base = os.path.join(os.path.dirname(d), os.path.basename(d))
+        if PREVIEW:
+            out = base + "_preview_A.png"
+            target = name + "_preview_A.png (+ _preview_B.png)"
+        else:
+            out = base + ".png"
+            target = name + (" (_A + _B)" if RENDER_BOTH_SIDES else "") + ".png"
         print("\n" + "-" * 60)
-        print(f"  [{i}/{len(subs)}] {name}  ->  {name}{sides}.png")
+        print(f"  [{i}/{len(subs)}] {name}  ->  {target}")
         print("-" * 60)
         try:
             main(d, out)
+            if PREVIEW:
+                vendor = find_vendor_image(d)
+                if vendor:
+                    try:
+                        save_as_png(vendor, base + "_preview_B.png")
+                        print(f"  Preview B <- {os.path.relpath(vendor, d)}")
+                        progress("IMAGE", "ok", name)
+                    except Exception as e:
+                        print(f"  !!! ERROR saving preview B from {vendor}: {e}")
+                        progress("IMAGE", "fail", name)
+                else:
+                    print("  No image in the folder - no preview B")
+                    progress("IMAGE", "none", name)
             done.append(name)
             progress("DONE", "ok", name)
         except Exception as e:
