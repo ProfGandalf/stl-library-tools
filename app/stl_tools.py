@@ -165,6 +165,116 @@ def suspend_process(proc, pause):
         pass
 
 
+def end_process(proc, grace=5.0):
+    """Makes sure a child process is gone: thaws it (if paused), asks it to
+    quit, and kills it if it is still there after `grace` seconds. Also
+    closes its output pipe. Safe to call on a process that already ended."""
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            suspend_process(proc, False)
+            proc.terminate()
+            try:
+                proc.wait(grace)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(5)
+    except Exception:
+        pass
+    try:
+        if proc.stdout:
+            proc.stdout.close()
+    except Exception:
+        pass
+
+
+class ChildGuard:
+    """Ties child processes to the life of this app, so Blender cannot be left
+    running if the app is killed or crashes (not only when it closes nicely).
+    Windows: a job object that kills its processes when the app's handle to it
+    closes - which the OS does on any exit. Linux: each child gets
+    PR_SET_PDEATHSIG = SIGKILL (sent when the thread that started it ends)."""
+
+    def __init__(self):
+        self.job = None
+        if IS_WIN:
+            try:
+                self.job = self._make_job()
+            except Exception:
+                self.job = None
+
+    @staticmethod
+    def _make_job():
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        class BASIC(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t),
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class IOC(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class EXTENDED(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", BASIC), ("IoInfo", IOC),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                ctypes.c_void_p, wintypes.DWORD]
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = EXTENDED()
+        info.BasicLimitInformation.LimitFlags = 0x2000      # KILL_ON_JOB_CLOSE
+        # 9 = JobObjectExtendedLimitInformation
+        if not k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+            return None
+        return job
+
+    def popen_kwargs(self):
+        """Extra Popen arguments (Linux: the death signal)."""
+        if not sys.platform.startswith("linux"):
+            return {}
+
+        def die_with_parent():
+            try:
+                import ctypes
+                import signal
+                ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+            except Exception:
+                pass
+        return {"preexec_fn": die_with_parent}
+
+    def adopt(self, proc):
+        """Windows: puts a freshly started process into the job."""
+        if not self.job:
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+            k32.AssignProcessToJobObject(self.job, int(proc._handle))
+        except Exception:
+            pass
+
+
 # ======================= Linux menu integration =========================
 
 def install_desktop_entry():
@@ -366,6 +476,7 @@ class App(tk.Tk):
         self.events = queue.Queue()
         self.worker = None
         self.proc = None
+        self.guard = ChildGuard()
         self.cancel = threading.Event()
         self.running = threading.Event()    # cleared = paused (worker threads wait)
         self.running.set()
@@ -894,12 +1005,15 @@ class App(tk.Tk):
         if not self.running.is_set():
             self._resume()
         self.btn_pause.configure(state="disabled")
+        self.btn_stop.configure(state="disabled")
         p = self.proc
         if p and p.poll() is None:
             try:
                 p.terminate()
             except Exception:
                 pass
+            # Blender busy in a long GPU call may ignore the polite request
+            self.after(5000, lambda: p.poll() is None and p.kill())
         self.lbl_stage.configure(text="Stopping…")
 
     def on_close(self):
@@ -907,6 +1021,13 @@ class App(tk.Tk):
             if not messagebox.askyesno("Work in progress", "Work is still running. Stop and close?"):
                 return
             self.stop()
+            # do not leave before Blender is really gone and the ZIP thread has
+            # removed its unfinished .part file (both take a few seconds at most)
+            self.lbl_stage.configure(text="Closing…")
+            self.update_idletasks()
+            end_process(self.proc)
+            if self.worker:
+                self.worker.join(15)
         self._save()
         self.destroy()
 
@@ -969,8 +1090,20 @@ class App(tk.Tk):
         if self.cancel.is_set():
             return
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     cwd=job["folder"], creationflags=flags, env=env)
+                                     cwd=job["folder"], creationflags=flags, env=env,
+                                     **self.guard.popen_kwargs())
+        self.guard.adopt(self.proc)
+        if not self.running.is_set():
+            suspend_process(self.proc, True)    # Pause pressed while it was starting
+        try:
+            self._read_blender(job, res, on_done, names)
+        finally:
+            # whatever happened (also an exception while reading its output),
+            # Blender must not outlive this run
+            end_process(self.proc)
+            self.proc = None
 
+    def _read_blender(self, job, res, on_done, names):
         total = len(names)
         t_start = time.time() - 2
         sides = 2 if job["both"] else 1
@@ -998,6 +1131,13 @@ class App(tk.Tk):
             if line.startswith("@@ "):
                 parts = line[3:].split(" ", 2)
                 kind = parts[0]
+                try:
+                    num = [int(p) for p in parts[1:3] if p.isdigit()]
+                    if kind in ("TOTAL", "FOLDER") and not num or kind == "IMPORT" and len(num) < 2:
+                        raise ValueError
+                except ValueError:
+                    self.emit("log", "[?] unreadable progress line: " + line, "err")
+                    continue
                 if kind == "TOTAL":
                     total = int(parts[1])
                 elif kind == "FOLDER":
@@ -1041,7 +1181,6 @@ class App(tk.Tk):
                 tag = "err" if ("ERROR" in line or "Error" in line or "!!!" in line) else None
                 self.emit("log", line, tag)
         code = self.proc.wait()
-        self.proc = None
         if cur and not self.cancel.is_set():
             # Blender died in the middle of a folder
             res[1] += 1
@@ -1238,7 +1377,7 @@ class App(tk.Tk):
             self._finished(*ev[1:])
 
     def _update_eta(self):
-        if not self.worker or not self.running.is_set():
+        if not self.worker or not self.running.is_set() or self.cancel.is_set():
             return
         el = self._active_time()
         frac, _ = self._overall()

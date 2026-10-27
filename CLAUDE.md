@@ -19,6 +19,11 @@ Two versions:
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never
   handles the terminate. Elapsed / ETA use `_active_time()` (paused time excluded).
+- **Blender must never outlive a run:** `_run_render` ends it in a `finally`
+  (`end_process`: thaw, terminate, kill after 5 s). Stop kills after 5 s if the polite
+  terminate is ignored; closing the window waits for Blender and the ZIP thread. If the app
+  itself dies, `ChildGuard` takes Blender with it (Windows job object with
+  KILL_ON_JOB_CLOSE, Linux PR_SET_PDEATHSIG). A garbled `@@` line is logged, not fatal.
 - **Folder prefixes in the app:** `_` = work-in-progress group (collapsible, never a set
   itself, its sets selectable and unticked by default, nesting allowed), `__` = hidden
   completely. Sets are keyed by their relative path everywhere in the GUI (tree iids,
