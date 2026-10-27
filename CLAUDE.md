@@ -15,6 +15,10 @@ Two versions:
     the GUI parses together with Cycles `Sample X/Y` lines. **Changing the `@@` format
     requires a matching change in `stl_tools.py`.** The GUI also marks log lines
     containing `ERROR` / `Error` / `!!!` as errors.
+- **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
+  NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
+  between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never
+  handles the terminate. Elapsed / ETA use `_active_time()` (paused time excluded).
 - **Folder prefixes in the app:** `_` = work-in-progress group (collapsible, never a set
   itself, its sets selectable and unticked by default, nesting allowed), `__` = hidden
   completely. Sets are keyed by their relative path everywhere in the GUI (tree iids,

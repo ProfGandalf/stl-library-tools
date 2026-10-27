@@ -144,6 +144,27 @@ def find_blender():
     return None
 
 
+# ===================== pausing the Blender process ======================
+
+def suspend_process(proc, pause):
+    """Freezes (pause=True) or thaws a running child process in place.
+    POSIX: SIGSTOP / SIGCONT. Windows: NtSuspendProcess / NtResumeProcess.
+    A frozen Blender keeps its memory (also on the GPU) and continues
+    from the same sample when resumed."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if IS_WIN:
+            import ctypes
+            fn = ctypes.windll.ntdll.NtSuspendProcess if pause else ctypes.windll.ntdll.NtResumeProcess
+            fn(ctypes.c_void_p(int(proc._handle)))
+        else:
+            import signal
+            os.kill(proc.pid, signal.SIGSTOP if pause else signal.SIGCONT)
+    except Exception:
+        pass
+
+
 # ======================= Linux menu integration =========================
 
 def install_desktop_entry():
@@ -346,6 +367,10 @@ class App(tk.Tk):
         self.worker = None
         self.proc = None
         self.cancel = threading.Event()
+        self.running = threading.Event()    # cleared = paused (worker threads wait)
+        self.running.set()
+        self.pause_t0 = None                # when the current pause started
+        self.paused_total = 0.0             # seconds spent paused in this run
         self.rows = {}          # set rel path -> dict from the scan (tree order)
         self.groups = {}        # group rel path -> [rel paths of all sets inside]
         self.checked = set()
@@ -550,6 +575,8 @@ class App(tk.Tk):
         btns.pack(fill="x", pady=(10, 0))
         self.btn_start = ttk.Button(btns, text="▶  Start", style="Start.TButton", command=self.start)
         self.btn_start.pack(side="left")
+        self.btn_pause = ttk.Button(btns, text="‖  Pause", command=self.toggle_pause, state="disabled")
+        self.btn_pause.pack(side="left", padx=(8, 0))
         self.btn_stop = ttk.Button(btns, text="■  Stop", command=self.stop, state="disabled")
         self.btn_stop.pack(side="left", padx=(8, 0))
 
@@ -808,7 +835,11 @@ class App(tk.Tk):
         self.png_kept = len(png_kept)
         self.t0 = time.time()
         self.cancel.clear()
+        self.running.set()
+        self.pause_t0 = None
+        self.paused_total = 0.0
         self.btn_start.configure(state="disabled")
+        self.btn_pause.configure(state="normal", text="‖  Pause")
         self.btn_stop.configure(state="normal")
         for b in self.bars:
             b.error = False
@@ -822,10 +853,47 @@ class App(tk.Tk):
         self.worker = threading.Thread(target=self._run, args=(job,), daemon=True)
         self.worker.start()
 
+    def toggle_pause(self):
+        if not self.worker:
+            return
+        if self.running.is_set():
+            self.running.clear()
+            self.pause_t0 = time.time()
+            suspend_process(self.proc, True)
+            self.btn_pause.configure(text="▶  Resume")
+            self.lbl_stage.configure(text="Paused")
+            for b in self.bars:
+                b.running = False
+                b.set(b.value, "paused" if b is not self.bar_total else
+                      "Paused  ·  %d%%" % round(b.value * 100))
+            self.log_line("═══ Paused ═══", "head")
+        else:
+            self._resume()
+            self.log_line("═══ Resumed ═══", "head")
+
+    def _resume(self):
+        if self.pause_t0 is not None:
+            self.paused_total += time.time() - self.pause_t0
+            self.pause_t0 = None
+        suspend_process(self.proc, False)
+        self.running.set()
+        self.btn_pause.configure(text="‖  Pause")
+        for b in self.bars:
+            b.running = True
+
+    def _active_time(self):
+        """Seconds of this run without the paused time."""
+        paused = self.paused_total + (time.time() - self.pause_t0 if self.pause_t0 else 0.0)
+        return time.time() - self.t0 - paused
+
     def stop(self):
         if not self.worker:
             return
         self.cancel.set()
+        # a frozen process would never handle the terminate - thaw it first
+        if not self.running.is_set():
+            self._resume()
+        self.btn_pause.configure(state="disabled")
         p = self.proc
         if p and p.poll() is None:
             try:
@@ -897,6 +965,9 @@ class App(tk.Tk):
 
         flags = 0x08000000 if IS_WIN else 0     # CREATE_NO_WINDOW - no black console window
         env = dict(os.environ, PYTHONUNBUFFERED="1")
+        self.running.wait()     # pressed Pause before Blender even started
+        if self.cancel.is_set():
+            return
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      cwd=job["folder"], creationflags=flags, env=env)
 
@@ -1005,6 +1076,11 @@ class App(tk.Tk):
                 return True
         return False
 
+    def _wait_if_paused(self):
+        """Blocks a worker thread while paused (Stop also wakes it)."""
+        while not self.running.is_set() and not self.cancel.is_set():
+            self.running.wait(0.2)
+
     def _zip_worker(self, job, zip_q, res):
         """Separate thread: zips folders in the order Blender hands them over."""
         root = job["folder"]
@@ -1015,6 +1091,7 @@ class App(tk.Tk):
             name = zip_q.get()
             if name is None:
                 break
+            self._wait_if_paused()
             k += 1
             if self.cancel.is_set():
                 continue
@@ -1083,6 +1160,7 @@ class App(tk.Tk):
                             chunk = fin.read(1 << 20)
                             if not chunk:
                                 break
+                            self._wait_if_paused()
                             fout.write(chunk)
                             done_bytes += len(chunk)
                             now = time.time()
@@ -1133,6 +1211,9 @@ class App(tk.Tk):
             self.log_line(ev[1], ev[2] if len(ev) > 2 else None)
         elif kind == "prog":
             _, which, name, frac, label, txt = ev
+            paused = not self.running.is_set()
+            if paused:
+                txt = "paused"      # lines that were already on their way when Pause was hit
             if which == "r":
                 self.lbl_render.configure(text=label)
                 self.bar_render.set(frac if name else 0, txt)
@@ -1144,8 +1225,8 @@ class App(tk.Tk):
             if name in self.parts:
                 self.parts[name][which] = max(self.parts[name][which], frac)
                 total, done = self._overall()
-                self.bar_total.set(total, "%d / %d folders done  ·  %d%%" % (
-                    done, len(self.parts), round(total * 100)))
+                self.bar_total.set(total, "%s%d / %d folders done  ·  %d%%" % (
+                    "Paused  ·  " if paused else "", done, len(self.parts), round(total * 100)))
         elif kind == "status":
             self.set_status(ev[1], ev[2], ev[3])
         elif kind == "rowflag":
@@ -1157,9 +1238,9 @@ class App(tk.Tk):
             self._finished(*ev[1:])
 
     def _update_eta(self):
-        if not self.worker:
+        if not self.worker or not self.running.is_set():
             return
-        el = time.time() - self.t0
+        el = self._active_time()
         frac, _ = self._overall()
         txt = "Working   ·   elapsed %s" % fmt_time(el)
         if 0.02 < frac < 1.0 and el > 5:
@@ -1168,6 +1249,10 @@ class App(tk.Tk):
 
     def _finished(self, results, elapsed, cancelled, did_render, did_zip):
         self.worker = None
+        elapsed = self._active_time()       # wall time minus pauses
+        self.running.set()
+        self.pause_t0 = None
+        self.btn_pause.configure(state="disabled", text="‖  Pause")
         self.btn_start.configure(state="normal")
         self.btn_stop.configure(state="disabled")
         for b in self.bars:

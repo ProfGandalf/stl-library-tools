@@ -59,6 +59,9 @@ The app can live anywhere. It does not need to be copied into the models folder.
    folder 2, and so on. Folders without models are zipped right away.
 5. **Start.** The top bar shows overall progress and the estimated time left. Below it
    are two bars side by side: Blender (import, side A, side B) and ZIP (megabytes).
+   **Pause** freezes everything in place: Blender is suspended mid-render (it keeps its
+   memory, also on the GPU) and zipping waits; **Resume** continues exactly where it
+   stopped. Paused time is not counted in the elapsed / remaining time.
    **Stop** stops the work, and an unfinished ZIP is deleted.
 
 Full Blender output is in the **Log** tab.
