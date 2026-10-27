@@ -565,8 +565,9 @@ class App(tk.Tk):
                foreground=[("disabled", C_DIM)])
         st.configure("TEntry", foreground=C_TEXT, insertcolor=C_TEXT)
         st.configure("TCombobox", foreground=C_TEXT, arrowcolor=C_TEXT)
-        st.map("TCombobox", fieldbackground=[("readonly", C_FIELD)],
-               foreground=[("readonly", C_TEXT)])
+        st.map("TCombobox", fieldbackground=[("disabled", C_PANEL), ("readonly", C_FIELD)],
+               foreground=[("disabled", C_DIM), ("readonly", C_TEXT)],
+               arrowcolor=[("disabled", C_DIM)])
         st.configure("Treeview", background=C_FIELD, fieldbackground=C_FIELD,
                      foreground=C_TEXT, rowheight=24, borderwidth=0)
         st.map("Treeview", background=[("selected", "#3a3f4a")])
