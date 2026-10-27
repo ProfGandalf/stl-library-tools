@@ -35,6 +35,8 @@ It is one download, with no installation and no Python needed. The only requirem
 2. **Models folder**: select the parent folder in which every subfolder is one set.
 3. **Blender** is detected automatically. If it is not found, select `blender.exe` by hand.
 4. Tick the subfolders, choose render and/or ZIP, click **Start**.
+   Folders starting with `_` are work-in-progress groups whose sets you can tick one by
+   one. Folders starting with `__` are hidden.
 
 Details are in [app/README.md](app/README.md).
 

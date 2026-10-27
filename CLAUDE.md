@@ -10,10 +10,15 @@ Two versions:
   - `app/render_grid.py`: Blender script the app runs as
     `blender --background --python render_grid.py -- --folder X --only name ...`.
     Render logic is identical to version 1. The only additions are the arguments after
-    `--` and the `@@ ...` progress lines (TOTAL / FOLDER / IMPORT / RENDER / DONE), which
+    `--` (`--only` takes a path relative to `--folder` with "/", e.g. `_Vehicles/Rhino`,
+    and the sheet is saved next to that folder) and the `@@ ...` progress lines (TOTAL / FOLDER / IMPORT / RENDER / DONE), which
     the GUI parses together with Cycles `Sample X/Y` lines. **Changing the `@@` format
     requires a matching change in `stl_tools.py`.** The GUI also marks log lines
     containing `ERROR` / `Error` / `!!!` as errors.
+- **Folder prefixes in the app:** `_` = work-in-progress group (collapsible, never a set
+  itself, its sets selectable and unticked by default, nesting allowed), `__` = hidden
+  completely. Sets are keyed by their relative path everywhere in the GUI (tree iids,
+  `self.rows`, `@@` lines). Inside a set all subfolders belong to the set.
 - **`Scripts - version 1/`**: the original scripts, run by double-click inside the
   parent folder, kept as an archive. Make new heuristic changes in `app/render_grid.py`.
   - `__RENDER.bat` + `__render_grid.py`: renders model folders as preview sheets

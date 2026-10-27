@@ -34,8 +34,19 @@ The app can live anywhere. It does not need to be copied into the models folder.
 2. **Blender** is detected automatically. If it is not found, select the file by hand.
 3. Tick the subfolders to process. Quick buttons:
    *All*, *None*, *Without PNG* (only those without a sheet), *Without ZIP*.
-   `Stare`, `Robocze` and `Do sprawdzenia` are unticked by default, and folders
-   starting with `_` are always skipped.
+   `Stare`, `Robocze` and `Do sprawdzenia` are unticked by default.
+
+   Folder name prefixes:
+   - **`_` = work-in-progress group** (e.g. `_Vehicles`). Shown as a collapsible row;
+     the group itself is never rendered or zipped, but the sets inside it can be ticked.
+     Clicking the group ticks / unticks all its sets (☑ all, ▣ some, ☐ none). Sets
+     inside groups start unticked. A `_` folder inside a group is a sub-group.
+     The sheet and the ZIP of a set inside a group go next to it, e.g.
+     `_Vehicles/Rhino_A.png` and `_Vehicles/Rhino.zip`.
+   - **`__` = hidden completely**, at any depth.
+
+   Inside a set folder (e.g. `Dreadnought/Arms`) every subfolder is part of that set,
+   whatever its name.
 4. Choose what to do: render, ZIP or both. Both "overwrite" options are ticked by default:
    - **overwrite existing PNGs** off: a folder that already has its sheet(s)
      (`name_A.png` + `name_B.png`, or `name.png` for one side) is not sent to Blender
