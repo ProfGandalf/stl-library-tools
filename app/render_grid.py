@@ -133,6 +133,29 @@ def progress(*parts):
     print("@@ " + " ".join(str(p) for p in parts), flush=True)
 
 
+_last_stats = [None]
+
+
+def _print_render_stats(*args):
+    """Blender 5 no longer prints per-sample progress in background mode, so the
+    app could not show how far a render is. This render_stats handler gets the
+    same status text the Blender window shows (e.g. "Mem: 4M | Sample 16/128",
+    or "Rendered 1/4 Tiles, Sample 16/128" for big images) and prints it
+    whenever the sample count changes; the app reads the "Sample X/Y" part."""
+    text = args[0] if args and isinstance(args[0], str) else ""
+    if "Sample" not in text:
+        return
+    sample = text.split("Sample", 1)[1].strip()
+    if sample != _last_stats[0]:
+        _last_stats[0] = sample
+        print("  Render stats: " + text, flush=True)
+
+
+try:
+    bpy.app.handlers.render_stats.append(_print_render_stats)
+except Exception:
+    pass
+
 if not FOLDER:
     FOLDER = _script_dir()
 if not OUTPUT:
@@ -639,6 +662,10 @@ def save_as_png(src, dst):
         return
     img = bpy.data.images.load(src)
     try:
+        # Blender loads image data lazily - touch the pixels so save() has data
+        if not img.has_data:
+            img.reload()
+            _ = img.pixels[0]
         img.filepath_raw = dst
         img.file_format = 'PNG'
         img.save()
