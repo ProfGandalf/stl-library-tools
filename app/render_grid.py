@@ -89,7 +89,8 @@ ONLY = None    # list of subfolder names to process (None = all)
 def _parse_args():
     """Arguments after '--' on Blender's command line (passed by the app):
          --folder PATH      parent folder with model subfolders
-         --only NAME        process only this subfolder (can be repeated)
+         --only PATH        process only this subfolder (can be repeated); a path
+                            relative to --folder with "/", e.g. "_Vehicles/Rhino"
          --res PX           resolution (square)
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
@@ -977,23 +978,36 @@ def run_all():
 
     subs = []
     skipped_dirs = []
-    for name in sorted(os.listdir(FOLDER)):
-        d = os.path.join(FOLDER, name)
-        if not os.path.isdir(d):
-            continue
-        # folders starting with _ are skipped (same as when zipping)
-        if ONLY is not None and name not in ONLY:
-            continue
-        if name.startswith('_'):
-            skipped_dirs.append(name)
-            continue
-        # only folders that contain models - also in subfolders
-        # (e.g. Dreadnought\\Arms\\*.stl), if RECURSIVE = True
-        try:
-            if collect_models(d, RECURSIVE):
-                subs.append((name, d))
-        except Exception:
-            continue
+    if ONLY is not None:
+        # explicit list from the app: paths relative to FOLDER with "/", e.g.
+        # "Dreadnought" or "_Vehicles/Predator" (sets inside _ group folders).
+        # They were picked by hand, so the _ rule does not apply here.
+        for rel in ONLY:
+            d = os.path.join(FOLDER, *rel.split('/'))
+            if not os.path.isdir(d):
+                print(f"!!! Folder does not exist: {d}")
+                continue
+            try:
+                if collect_models(d, RECURSIVE):
+                    subs.append((rel, d))
+            except Exception:
+                continue
+    else:
+        for name in sorted(os.listdir(FOLDER)):
+            d = os.path.join(FOLDER, name)
+            if not os.path.isdir(d):
+                continue
+            # folders starting with _ are skipped (same as when zipping)
+            if name.startswith('_'):
+                skipped_dirs.append(name)
+                continue
+            # only folders that contain models - also in subfolders
+            # (e.g. Dreadnought\\Arms\\*.stl), if RECURSIVE = True
+            try:
+                if collect_models(d, RECURSIVE):
+                    subs.append((name, d))
+            except Exception:
+                continue
 
     if skipped_dirs:
         print("  Skipped folders starting with _ : " + ", ".join(skipped_dirs))
@@ -1011,7 +1025,8 @@ def run_all():
     done, failed = [], []
     for i, (name, d) in enumerate(subs, 1):
         progress("FOLDER", i, name)
-        out = os.path.join(FOLDER, name + ".png")
+        # the sheet goes next to the set folder (inside its group, if any)
+        out = os.path.join(os.path.dirname(d), os.path.basename(d) + ".png")
         sides = " (_A + _B)" if RENDER_BOTH_SIDES else ""
         print("\n" + "-" * 60)
         print(f"  [{i}/{len(subs)}] {name}  ->  {name}{sides}.png")

@@ -193,36 +193,51 @@ def install_desktop_entry():
 
 # ============================ folder scan ===============================
 
-def scan_folder(parent):
-    """Returns a list of dicts describing every subfolder."""
-    out = []
-    try:
-        names = sorted(os.listdir(parent), key=str.lower)
-    except OSError:
-        return out
-    for name in names:
-        d = os.path.join(parent, name)
-        if not os.path.isdir(d):
-            continue
-        models = mf3 = 0
-        for root, _dirs, files in os.walk(d):
-            for f in files:
-                fl = f.lower()
-                if fl.endswith(MODEL_EXTS):
-                    models += 1
-                elif fl.endswith(".3mf"):
-                    mf3 += 1
-        png = (os.path.isfile(os.path.join(parent, name + "_A.png"))
-               or os.path.isfile(os.path.join(parent, name + ".png")))
-        out.append({
-            "name": name,
-            "models": models,
-            "mf3": mf3,
-            "png": png,
-            "zip": os.path.isfile(os.path.join(parent, name + ".zip")),
-            "underscore": name.startswith("_"),
-        })
-    return out
+def split_rel(root, rel):
+    """'_Vehicles/Rhino' -> (root/_Vehicles, 'Rhino'): the folder a set lives in
+    (where its PNG and ZIP go) and the set's own folder name."""
+    parts = rel.split("/")
+    return os.path.join(root, *parts[:-1]), parts[-1]
+
+
+def scan_tree(root):
+    """Returns the folder tree under root as a list of nodes:
+      {"kind": "group", "rel", "name", "children": [...]}   folder starting with _
+      {"kind": "set", "rel", "name", "models", "mf3", "png", "zip"}   any other folder
+    Folders starting with __ are hidden completely. "rel" is the path relative
+    to root with "/" (e.g. "_Vehicles/Rhino"). Inside a set everything counts
+    as part of that set, same as in render_grid.py (RECURSIVE)."""
+    def walk(rel_dir):
+        base = os.path.join(root, *rel_dir.split("/")) if rel_dir else root
+        try:
+            names = sorted(os.listdir(base), key=str.lower)
+        except OSError:
+            return []
+        nodes = []
+        for name in names:
+            d = os.path.join(base, name)
+            if not os.path.isdir(d) or name.startswith("__"):
+                continue
+            rel = rel_dir + "/" + name if rel_dir else name
+            if name.startswith("_"):
+                nodes.append({"kind": "group", "rel": rel, "name": name,
+                              "children": walk(rel)})
+                continue
+            models = mf3 = 0
+            for _root, _dirs, files in os.walk(d):
+                for f in files:
+                    fl = f.lower()
+                    if fl.endswith(MODEL_EXTS):
+                        models += 1
+                    elif fl.endswith(".3mf"):
+                        mf3 += 1
+            png = (os.path.isfile(os.path.join(base, name + "_A.png"))
+                   or os.path.isfile(os.path.join(base, name + ".png")))
+            nodes.append({"kind": "set", "rel": rel, "name": name,
+                          "models": models, "mf3": mf3, "png": png,
+                          "zip": os.path.isfile(os.path.join(base, name + ".zip"))})
+        return nodes
+    return walk("")
 
 
 # ====================== fancy progress bar (Canvas) =====================
@@ -331,7 +346,8 @@ class App(tk.Tk):
         self.worker = None
         self.proc = None
         self.cancel = threading.Event()
-        self.rows = {}          # name -> dict from the scan
+        self.rows = {}          # set rel path -> dict from the scan (tree order)
+        self.groups = {}        # group rel path -> [rel paths of all sets inside]
         self.checked = set()
 
         self.var_folder = tk.StringVar(value=self.cfg.get("folder", ""))
@@ -447,8 +463,10 @@ class App(tk.Tk):
 
         p = ttk.Frame(self.tabs, padding=(12, 8))
         self.tabs.add(p, text="  Subfolders  ")
-        ttk.Label(p, text="Click a row to tick / untick it.",
-                  style="Dim.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(p, text="Click a row to tick / untick it. Folders starting with _ are "
+                          "work-in-progress groups: open them with the arrow and tick what "
+                          "you need. Folders starting with __ are hidden.",
+                  style="Dim.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(0, 6))
         bar = ttk.Frame(p)
         bar.pack(fill="x", pady=(0, 6))
         ttk.Button(bar, text="All", command=lambda: self.select("all")).pack(side="left")
@@ -460,11 +478,12 @@ class App(tk.Tk):
 
         tf = ttk.Frame(p)
         tf.pack(fill="both", expand=True)
-        cols = ("chk", "name", "models", "png", "zip", "st_render", "st_zip")
-        self.tree = ttk.Treeview(tf, columns=cols, show="headings", selectmode="none", height=6)
+        cols = ("models", "png", "zip", "st_render", "st_zip")
+        self.tree = ttk.Treeview(tf, columns=cols, show="tree headings", selectmode="none", height=6)
+        # tree column: expand arrow + tick + folder name
+        self.tree.heading("#0", text="Folder", anchor="w")
+        self.tree.column("#0", width=300, anchor="w", stretch=True)
         for c, txt, w, anchor, stretch in (
-                ("chk", "", 34, "center", False),
-                ("name", "Folder", 260, "w", True),
                 ("models", "Models", 80, "center", False),
                 ("png", "PNG", 50, "center", False),
                 ("zip", "ZIP", 50, "center", False),
@@ -476,6 +495,7 @@ class App(tk.Tk):
         self.tree.tag_configure("ok", foreground=C_OK)
         self.tree.tag_configure("err", foreground=C_ERR)
         self.tree.tag_configure("busy", foreground=C_ACCENT)
+        self.tree.tag_configure("group", foreground=C_BONE, font=ui_font(10, True))
         sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -576,12 +596,15 @@ class App(tk.Tk):
 
     def refresh(self):
         folder = self.var_folder.get().strip()
-        # ticks are remembered only within the same folder
+        # ticks and open groups are remembered only within the same folder
         same = os.path.normcase(folder) == getattr(self, "_scanned", None)
         keep = set(self.checked) if same else None
+        opened = {g for g in self.groups if self.tree.exists(g) and self.tree.item(g, "open")} \
+            if same else set()
         self._scanned = os.path.normcase(folder)
         self.tree.delete(*self.tree.get_children())
         self.rows.clear()
+        self.groups.clear()
         self.checked.clear()
         if not os.path.isdir(folder):
             self.lbl_count.configure(text="")
@@ -589,53 +612,81 @@ class App(tk.Tk):
         self.configure(cursor="watch")
         self.update_idletasks()
         try:
-            items = scan_folder(folder)
+            nodes = scan_tree(folder)
         finally:
             self.configure(cursor="")
-        for it in items:
-            name = it["name"]
-            self.rows[name] = it
-            if it["underscore"]:
-                status = "skipped (name starts with _)"
-            elif it["models"] == 0:
-                status = "3MF only" if it["mf3"] else "no models"
-            else:
-                status = ""
-            selectable = not it["underscore"]
-            if selectable:
-                if keep is None:
-                    on = name.lower() not in DEFAULT_SKIP
+
+        def add(parent_iid, nodes, in_group):
+            sets = []
+            for it in nodes:
+                rel = it["rel"]
+                if it["kind"] == "group":
+                    self.tree.insert(parent_iid, "end", iid=rel, open=rel in opened,
+                                     tags=("group",))
+                    inner = add(rel, it["children"], True)
+                    self.groups[rel] = inner
+                    self.tree.item(rel, values=("%d set%s" % (len(inner), "" if len(inner) == 1 else "s"),
+                                                     "", "", "", ""))
+                    sets += inner
+                    continue
+                self.rows[rel] = it
+                if it["models"] == 0:
+                    status = "3MF only" if it["mf3"] else "no models"
                 else:
-                    on = name in keep
+                    status = ""
+                if keep is None:
+                    # sets inside _ groups are work in progress - unticked by default
+                    on = not in_group and it["name"].lower() not in DEFAULT_SKIP
+                else:
+                    on = rel in keep
                 if on:
-                    self.checked.add(name)
-            models = str(it["models"]) + (" +%d 3MF" % it["mf3"] if it["mf3"] else "")
-            self.tree.insert("", "end", iid=name, values=(
-                "", name, models, "✔" if it["png"] else "—", "✔" if it["zip"] else "—", status, ""),
-                tags=() if selectable else ("off",))
-            self._draw_check(name)
+                    self.checked.add(rel)
+                models = str(it["models"]) + (" +%d 3MF" % it["mf3"] if it["mf3"] else "")
+                self.tree.insert(parent_iid, "end", iid=rel, values=(
+                    models, "✔" if it["png"] else "—", "✔" if it["zip"] else "—", status, ""))
+                sets.append(rel)
+            return sets
+
+        add("", nodes, False)
+        self._draw_checks()
         self._update_count()
 
-    def _draw_check(self, name):
-        if self.tree.exists(name):
-            self.tree.set(name, "chk", "☑" if name in self.checked else "☐")
+    def _draw_checks(self):
+        """Tick glyphs: sets ☑ / ☐, groups ☑ all, ▣ some, ☐ none of their sets."""
+        for rel, it in self.rows.items():
+            self.tree.item(rel, text="%s  %s" % ("☑" if rel in self.checked else "☐", it["name"]))
+        for rel, inner in self.groups.items():
+            n = sum(1 for r in inner if r in self.checked)
+            glyph = "☑" if inner and n == len(inner) else ("▣" if n else "☐")
+            self.tree.item(rel, text="%s  %s" % (glyph, rel.split("/")[-1]))
 
     def _update_count(self):
         self.lbl_count.configure(text="ticked: %d / %d" % (len(self.checked), len(self.rows)))
 
     def on_click(self, event):
-        if self.worker:
-            return "break"
         if self.tree.identify_region(event.x, event.y) == "heading":
             return None
-        name = self.tree.identify_row(event.y)
-        if not name or self.rows.get(name, {}).get("underscore"):
+        # the expand arrow keeps its normal job, also while working
+        if "indicator" in self.tree.identify_element(event.x, event.y):
+            return None
+        if self.worker:
             return "break"
-        if name in self.checked:
-            self.checked.discard(name)
+        rel = self.tree.identify_row(event.y)
+        if rel in self.groups:
+            # a group ticks / unticks all its sets at once
+            inner = self.groups[rel]
+            if all(r in self.checked for r in inner):
+                self.checked.difference_update(inner)
+            else:
+                self.checked.update(inner)
+        elif rel in self.rows:
+            if rel in self.checked:
+                self.checked.discard(rel)
+            else:
+                self.checked.add(rel)
         else:
-            self.checked.add(name)
-        self._draw_check(name)
+            return "break"
+        self._draw_checks()
         self._update_count()
         return "break"
 
@@ -644,15 +695,14 @@ class App(tk.Tk):
             return
         self.checked.clear()
         for name, it in self.rows.items():
-            if it["underscore"] or mode == "none":
+            if mode == "none":
                 continue
             if mode == "nopng" and (it["png"] or it["models"] == 0):
                 continue
             if mode == "nozip" and it["zip"]:
                 continue
             self.checked.add(name)
-        for name in self.rows:
-            self._draw_check(name)
+        self._draw_checks()
         self._update_count()
 
     def set_status(self, name, col, text):
@@ -858,6 +908,7 @@ class App(tk.Tk):
         imp = 0.0               # import progress 0..1
         rend = -1               # which render in the folder (0 = A, 1 = B)
         samp = 0.0
+        finished = set()        # sets the script reported as done (ok or fail)
 
         def push():
             if not cur:
@@ -891,6 +942,7 @@ class App(tk.Tk):
                     samp = 0.0
                 elif kind == "DONE":
                     name = parts[2] if len(parts) > 2 else cur
+                    finished.add(name)
                     # "ok" from the script is not enough - main() returns without
                     # rendering when nothing was imported; a fresh PNG on disk counts
                     ok = parts[1] == "ok" and self._fresh_png(job["folder"], name, t_start)
@@ -922,22 +974,31 @@ class App(tk.Tk):
         if cur and not self.cancel.is_set():
             # Blender died in the middle of a folder
             res[1] += 1
+            finished.add(cur)
             self.emit("status", cur, "st_render", "✖ Blender aborted")
+        if not self.cancel.is_set():
+            # sets Blender never got to (folder gone, crash before it, ...)
+            for n in names:
+                if n not in finished:
+                    res[1] += 1
+                    self.emit("status", n, "st_render", "✖ not rendered")
         if code != 0 and not self.cancel.is_set():
             self.emit("log", "!!! Blender exited with code %s" % code, "err")
         self.emit("prog", "r", None, 1.0, "Blender: finished", "")
 
     @staticmethod
-    def _has_png(parent, name, both):
-        """True when the folder already has its sheet(s): name_A.png and
+    def _has_png(root, rel, both):
+        """True when the set already has its sheet(s): name_A.png and
         name_B.png for A + B, or name.png for one side."""
+        parent, name = split_rel(root, rel)
         if both:
             return all(os.path.isfile(os.path.join(parent, name + s))
                        for s in ("_A.png", "_B.png"))
         return os.path.isfile(os.path.join(parent, name + ".png"))
 
     @staticmethod
-    def _fresh_png(parent, name, since):
+    def _fresh_png(root, rel, since):
+        parent, name = split_rel(root, rel)
         for suf in ("_A.png", ".png"):
             p = os.path.join(parent, name + suf)
             if os.path.isfile(p) and os.path.getmtime(p) >= since:
@@ -946,7 +1007,7 @@ class App(tk.Tk):
 
     def _zip_worker(self, job, zip_q, res):
         """Separate thread: zips folders in the order Blender hands them over."""
-        parent = job["folder"]
+        root = job["folder"]
         total = len(job["zip"])
         k = 0
         while True:
@@ -958,7 +1019,8 @@ class App(tk.Tk):
             if self.cancel.is_set():
                 continue
             label = "ZIP [%d/%d]: %s" % (k, total, name)
-            dst = os.path.join(parent, name + ".zip")
+            parent, base = split_rel(root, name)       # name is the set's rel path
+            dst = os.path.join(parent, base + ".zip")
             if os.path.exists(dst) and not job["overwrite_zip"]:
                 res[1] += 1
                 self.emit("status", name, "st_zip", "already exists")
@@ -968,7 +1030,7 @@ class App(tk.Tk):
             self.emit("status", name, "st_zip", "zipping…")
             self.emit("log", "[+] zipping: %s" % name)
             try:
-                done = self._zip_one(parent, name, os.path.join(parent, name), dst, label)
+                done = self._zip_one(parent, name, os.path.join(parent, base), dst, label)
             except Exception as e:
                 done = False
                 self.emit("log", "    [ERROR] %s: %s" % (name, e), "err")
