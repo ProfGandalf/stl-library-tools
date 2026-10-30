@@ -50,9 +50,10 @@ The app can live anywhere. It does not need to be copied into the models folder.
 4. Choose what to do: render, ZIP or both. The render has two modes:
    - **full sheets**: `name_A.png` + `name_B.png` (resolution and A/B apply here), with
      an **engine** choice:
-     - *Cycles (realistic)*: real light, ambient occlusion and shadows; slow (samples apply);
-     - *Workbench (fast)*: the viewport look of the quick preview (studio light, edges
-       and recesses outlined, no shadows) at full resolution; crisp and seconds per sheet.
+     - *Workbench (fast)*, the default: the viewport look of the quick preview (studio
+       light, edges and recesses outlined, no shadows) at full resolution; crisp and
+       seconds per sheet;
+     - *Cycles (realistic)*: real light, ambient occlusion and shadows; slow (samples apply).
    - **quick preview**, to recognise a set at a glance:
      - `name_preview_A.png`: the same layout, rendered with Blender's fast Workbench
        engine at 1500 px, one side (seconds instead of minutes);

@@ -449,7 +449,8 @@ class FancyBar(tk.Canvas):
 # ============================== the app =================================
 
 # full sheets engine: label in the app -> value for render_grid.py --engine
-ENGINE_LABELS = ("Cycles (realistic)", "Workbench (fast)")
+# the first one is the default - Workbench, the user found it more readable
+ENGINE_LABELS = ("Workbench (fast)", "Cycles (realistic)")
 ENGINE_ARGS = {"Cycles (realistic)": "cycles", "Workbench (fast)": "workbench"}
 
 SAMPLE_RE = re.compile(r"Sample (\d+)/(\d+)")

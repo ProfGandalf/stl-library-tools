@@ -23,7 +23,8 @@ Two versions:
 - **Full sheets engine** (`ENGINE` / `--engine cycles|workbench`, "engine" combobox in the app):
   `"workbench"` runs the same `setup_workbench()` at `RES_X` with both sides A/B. Added after
   the user compared a Cycles sheet with a quick preview and found the Workbench one more
-  readable (no shadows over neighbours, cavity edges). Cycles stays the default.
+  readable (no shadows over neighbours, cavity edges). **Workbench is the default** (user's
+  choice), in the app and in `render_grid.py`; Cycles is the second option.
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

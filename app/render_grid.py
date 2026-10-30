@@ -176,10 +176,10 @@ RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
                             # compare and pick the better side. False = one file.
 SAMPLES       = 128         # render quality (more = nicer + slower)
 
-ENGINE        = "cycles"    # engine of the full sheets:
-                            #   "cycles"    - realistic light, AO, shadows (slow)
+ENGINE        = "workbench" # engine of the full sheets:
                             #   "workbench" - viewport look: studio light + cavity
                             #                 edges, no shadows; crisp and fast
+                            #   "cycles"    - realistic light, AO, shadows (slow)
                             # same layout, resolution and A/B either way
 
 PREVIEW       = False       # True: quick preview mode (see --preview) - Workbench
