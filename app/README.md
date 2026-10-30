@@ -54,6 +54,12 @@ The app can live anywhere. It does not need to be copied into the models folder.
        light, edges and recesses outlined, no shadows) at full resolution; crisp and
        seconds per sheet;
      - *Cycles (realistic)*: real light, ambient occlusion and shadows; slow (samples apply).
+
+     **Resolution** (default 4000 px) has an **auto** option: per set, after laying out
+     the sheet, it picks 4000, 6000 or 8000 px, the lowest at which the small parts (the
+     smallest 10% of the set) come out at least 150 px across. A set with one huge part and
+     many tiny bits therefore gets more pixels than its part count alone would suggest.
+     The chosen size is shown in the Log tab.
    - **quick preview**, to recognise a set at a glance:
      - `name_preview_A.png`: the same layout, rendered with Blender's fast Workbench
        engine at 1500 px, one side (seconds instead of minutes);

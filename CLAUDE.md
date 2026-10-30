@@ -25,6 +25,10 @@ Two versions:
   the user compared a Cycles sheet with a quick preview and found the Workbench one more
   readable (no shadows over neighbours, cavity edges). **Workbench is the default** (user's
   choice), in the app and in `render_grid.py`; Cycles is the second option.
+- **Auto resolution** (`--res auto`, "auto" in the resolution list; 4000 stays the default):
+  `auto_resolution()` runs after the layout and camera are set and picks the lowest of
+  `AUTO_RES_STEPS` (4000/6000/8000) at which the 10th-percentile part (longer side) is at
+  least `AUTO_RES_MIN_PART_PX` (150) px across; per set, both engines; not for the preview.
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

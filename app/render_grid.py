@@ -91,7 +91,8 @@ def _parse_args():
          --folder PATH      parent folder with model subfolders
          --only PATH        process only this subfolder (can be repeated); a path
                             relative to --folder with "/", e.g. "_Vehicles/Rhino"
-         --res PX           resolution (square)
+         --res PX|auto      resolution (square); "auto" picks one of
+                            AUTO_RES_STEPS per set (see auto_resolution())
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
          --engine NAME      full sheets engine: cycles (default) or workbench
@@ -100,7 +101,7 @@ def _parse_args():
                             same layout) + name_preview_B.png (largest image
                             found in the set folder, e.g. the vendor's render)
     """
-    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW, ENGINE
+    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW, ENGINE, RES_AUTO
     if '--' not in sys.argv:
         return
     args = sys.argv[sys.argv.index('--') + 1:]
@@ -115,7 +116,10 @@ def _parse_args():
             ONLY = (ONLY or []) + [val]
             i += 1
         elif a == '--res' and val is not None:
-            RES_X = RES_Y = int(val)
+            if val.lower() == "auto":
+                RES_AUTO = True
+            else:
+                RES_X = RES_Y = int(val)
             i += 1
         elif a == '--samples' and val is not None:
             SAMPLES = int(val)
@@ -167,6 +171,12 @@ if not OUTPUT:
 
 RES_X         = 4000        # horizontal resolution (px)
 RES_Y         = 4000        # vertical resolution (px)
+
+RES_AUTO      = False       # True: pick the resolution per set from AUTO_RES_STEPS -
+                            # the lowest one at which the small parts (smallest 10%)
+                            # are at least AUTO_RES_MIN_PART_PX across
+AUTO_RES_STEPS       = (4000, 6000, 8000)
+AUTO_RES_MIN_PART_PX = 150
 
 RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
                             #   name_A.png - models as the script placed them
@@ -619,6 +629,25 @@ def setup_lighting():
     sun("Rim",  (75, 0, 180),  0.9)    # back light, separates from background
 
 
+def auto_resolution(dims, frame_size):
+    """RES_AUTO: the lowest of AUTO_RES_STEPS at which the small parts (the
+    smallest 10% of the set, by their longer side) come out at least
+    AUTO_RES_MIN_PART_PX across. Measured on the real layout, so a set with
+    one huge part next to many tiny bits gets more pixels than its part count
+    alone would suggest. Falls back to the largest step."""
+    sides = sorted(max(w, h) for w, h in dims)
+    small = sides[int(0.1 * (len(sides) - 1))] if sides else 0.0
+    pick = AUTO_RES_STEPS[-1]
+    for step in AUTO_RES_STEPS:
+        if frame_size > 0 and small * step / frame_size >= AUTO_RES_MIN_PART_PX:
+            pick = step
+            break
+    px = small * pick / frame_size if frame_size > 0 else 0
+    print("  Auto resolution: %d px (%d parts, small parts ~%d px across)"
+          % (pick, len(dims), px))
+    return pick
+
+
 def setup_workbench(scene, clay, floor_mat, res):
     """Workbench (the viewport renderer) instead of Cycles - used by the quick
     preview and by ENGINE = "workbench". No sampling, no denoising, seconds
@@ -981,6 +1010,10 @@ def main(FOLDER, OUTPUT):
                 ext_y = max(ext_y, abs(p.y))
     cam_data.ortho_scale = 2.0 * max(ext_x, ext_y) * 1.06   # 6% margin
 
+    res = RES_X
+    if RES_AUTO and not PREVIEW:
+        res = auto_resolution(dims, cam_data.ortho_scale)
+
     # floor: created AFTER fitting the camera, sized relative to the frame
     # (not 4x the grid), centred on the models. In iso it has to be larger,
     # because the ground "runs away" into the depth of the frame.
@@ -1004,6 +1037,9 @@ def main(FOLDER, OUTPUT):
     scene.cycles.samples = SAMPLES
     scene.cycles.use_denoising = True
     scene.render.resolution_x = RES_X
+    if res != RES_X:                   # RES_AUTO picked another size for this set
+        scene.render.resolution_x = res
+        scene.render.resolution_y = res
     scene.render.resolution_y = RES_Y
     scene.render.filepath = OUTPUT
     scene.render.image_settings.file_format = 'PNG'
@@ -1021,7 +1057,7 @@ def main(FOLDER, OUTPUT):
     if PREVIEW:
         setup_workbench(scene, clay, fmat, PREVIEW_RES)
     elif ENGINE == "workbench":
-        setup_workbench(scene, clay, fmat, RES_X)
+        setup_workbench(scene, clay, fmat, res)
 
     if USE_GPU and not PREVIEW and ENGINE != "workbench":
         try:

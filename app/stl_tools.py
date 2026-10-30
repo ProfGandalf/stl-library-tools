@@ -507,6 +507,8 @@ class App(tk.Tk):
         if self.var_engine.get() not in ENGINE_LABELS:
             self.var_engine.set(ENGINE_LABELS[0])
         self.var_res = tk.StringVar(value=str(self.cfg.get("res", 4000)))
+        if self.var_res.get() not in ("1000", "2000", "3000", "4000", "6000", "8000", "auto"):
+            self.var_res.set("4000")
         self.var_samples = tk.StringVar(value=str(self.cfg.get("samples", 128)))
 
         self._style()
@@ -682,7 +684,7 @@ class App(tk.Tk):
         self.cb_engine.bind("<<ComboboxSelected>>", lambda e: self._mode_changed())
         ttk.Label(r1, text="  resolution:").pack(side="left")
         self.cb_res = ttk.Combobox(r1, textvariable=self.var_res, width=6, state="readonly",
-                                   values=("1000", "2000", "3000", "4000", "6000", "8000"))
+                                   values=("1000", "2000", "3000", "4000", "6000", "8000", "auto"))
         self.cb_res.pack(side="left", padx=(4, 0))
         ttk.Label(r1, text="  samples:").pack(side="left")
         self.cb_samples = ttk.Combobox(r1, textvariable=self.var_samples, width=5, state="readonly",
@@ -930,7 +932,7 @@ class App(tk.Tk):
             "both_sides": self.var_both.get(),
             "render_mode": self.var_mode.get(),
             "engine": self.var_engine.get(),
-            "res": int(self.var_res.get()),
+            "res": self.var_res.get(),          # a number or "auto"
             "samples": int(self.var_samples.get()),
         })
         save_config(self.cfg)
