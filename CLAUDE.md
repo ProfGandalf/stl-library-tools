@@ -203,8 +203,16 @@ renders B. Do not split this back into two passes — it was a time optimisation
   **two** places (BSDF and the RGB node feeding the AO mix) — change both, otherwise
   they drift apart with AO enabled.
 - **Lights** are `SUN`, not `AREA` — they do not depend on scene scale, which is crucial
-  with `NORMALIZE = False`. A steep tilt (70°+) shortens shadows so they do not spill
-  onto neighbours in a tight layout.
+  with `NORMALIZE = False`.
+  **Correction (tested):** the X rotation of 70–75° does *not* give short shadows. A sun
+  with X = 0 points straight down, so X = 70° is a sun only 20° above the horizon:
+  shadows are ~2.75× the part height (70° → 2.75×, 45° → 1×, 25° → 0.47×) and they do
+  spill onto neighbours. A test with real Blender (Cycles, same scene, tilts 70–75 vs
+  45–55 vs 25–45) showed the trade-off: steeper suns give compact shadows but flatten the
+  surface relief (raking light is what shows it) and brighten the background (corner
+  63 → 96 → 105 of 255). The user found a Workbench sheet more readable than both, which
+  is why `ENGINE = "workbench"` exists. The Cycles tilts were left unchanged - change them
+  only if the user asks.
 
 ---
 
