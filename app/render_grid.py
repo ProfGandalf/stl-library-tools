@@ -94,12 +94,13 @@ def _parse_args():
          --res PX           resolution (square)
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
+         --engine NAME      full sheets engine: cycles (default) or workbench
          --preview          quick preview instead of the full sheets:
                             name_preview_A.png (fast Workbench render of the
                             same layout) + name_preview_B.png (largest image
                             found in the set folder, e.g. the vendor's render)
     """
-    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW
+    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW, ENGINE
     if '--' not in sys.argv:
         return
     args = sys.argv[sys.argv.index('--') + 1:]
@@ -121,6 +122,9 @@ def _parse_args():
             i += 1
         elif a == '--one-side':
             RENDER_BOTH_SIDES = False
+        elif a == '--engine' and val is not None:
+            ENGINE = val.lower()
+            i += 1
         elif a == '--preview':
             PREVIEW = True
             RENDER_BOTH_SIDES = False
@@ -171,6 +175,12 @@ RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
                             # The layout is identical on both, so it is easy to
                             # compare and pick the better side. False = one file.
 SAMPLES       = 128         # render quality (more = nicer + slower)
+
+ENGINE        = "cycles"    # engine of the full sheets:
+                            #   "cycles"    - realistic light, AO, shadows (slow)
+                            #   "workbench" - viewport look: studio light + cavity
+                            #                 edges, no shadows; crisp and fast
+                            # same layout, resolution and A/B either way
 
 PREVIEW       = False       # True: quick preview mode (see --preview) - Workbench
                             # instead of Cycles, one side, PREVIEW_RES; the layout
@@ -609,14 +619,16 @@ def setup_lighting():
     sun("Rim",  (75, 0, 180),  0.9)    # back light, separates from background
 
 
-def setup_preview(scene, clay, floor_mat):
-    """Quick preview: Workbench (the viewport renderer) instead of Cycles -
-    no sampling, no denoising, about a second per image. Same colours as the
-    full sheet: Workbench uses the materials' viewport colour, so it is set
-    to the same bone / dark values as the node colours."""
+def setup_workbench(scene, clay, floor_mat, res):
+    """Workbench (the viewport renderer) instead of Cycles - used by the quick
+    preview and by ENGINE = "workbench". No sampling, no denoising, seconds
+    per image; studio light + cavity shading make fine relief easy to read.
+    Same colours as the Cycles sheet: Workbench uses the materials' viewport
+    colour, so it is set to the same bone / dark values as the node colours.
+    Only overrides settings made for Cycles - the layout is untouched."""
     scene.render.engine = 'BLENDER_WORKBENCH'
-    scene.render.resolution_x = PREVIEW_RES
-    scene.render.resolution_y = PREVIEW_RES
+    scene.render.resolution_x = res
+    scene.render.resolution_y = res
     clay.diffuse_color = (0.72, 0.70, 0.66, 1.0)        # light bone
     floor_mat.diffuse_color = (0.10, 0.11, 0.13, 1.0)   # dark background
     if scene.world:
@@ -1007,9 +1019,11 @@ def main(FOLDER, OUTPUT):
     except Exception:
         pass
     if PREVIEW:
-        setup_preview(scene, clay, fmat)
+        setup_workbench(scene, clay, fmat, PREVIEW_RES)
+    elif ENGINE == "workbench":
+        setup_workbench(scene, clay, fmat, RES_X)
 
-    if USE_GPU and not PREVIEW:
+    if USE_GPU and not PREVIEW and ENGINE != "workbench":
         try:
             prefs = bpy.context.preferences.addons['cycles'].preferences
             prefs.get_devices()

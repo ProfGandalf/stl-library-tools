@@ -17,9 +17,13 @@ Two versions:
     containing `ERROR` / `Error` / `!!!` as errors.
 - **Quick preview mode** (`--preview`, radio "quick preview" in the app): Workbench render
   of the same layout at `PREVIEW_RES` 1500 px, one side -> `name_preview_A.png`
-  (`setup_preview()` only overrides settings after the Cycles setup; full sheets untouched),
+  (`setup_workbench()` only overrides settings after the Cycles setup; full sheets untouched),
   plus the largest image in the set folder saved as PNG -> `name_preview_B.png`
   (`find_vendor_image()`, `save_as_png()`), reported with `@@ IMAGE ok|none|fail <rel>`.
+- **Full sheets engine** (`ENGINE` / `--engine cycles|workbench`, "engine" combobox in the app):
+  `"workbench"` runs the same `setup_workbench()` at `RES_X` with both sides A/B. Added after
+  the user compared a Cycles sheet with a quick preview and found the Workbench one more
+  readable (no shadows over neighbours, cavity edges). Cycles stays the default.
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

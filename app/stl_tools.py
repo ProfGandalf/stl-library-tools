@@ -448,6 +448,10 @@ class FancyBar(tk.Canvas):
 
 # ============================== the app =================================
 
+# full sheets engine: label in the app -> value for render_grid.py --engine
+ENGINE_LABELS = ("Cycles (realistic)", "Workbench (fast)")
+ENGINE_ARGS = {"Cycles (realistic)": "cycles", "Workbench (fast)": "workbench"}
+
 SAMPLE_RE = re.compile(r"Sample (\d+)/(\d+)")
 # Cycles renders large images in tiles: "Rendered 1/4 Tiles, Sample 64/128"
 TILES_RE = re.compile(r"(\d+)/(\d+) Tiles")
@@ -497,6 +501,10 @@ class App(tk.Tk):
         # "full" = the real sheets (Cycles, name_A/_B.png), "preview" = quick look
         # (name_preview_A.png fast render + name_preview_B.png vendor image)
         self.var_mode = tk.StringVar(value=self.cfg.get("render_mode", "full"))
+        # engine of the full sheets: Cycles (realistic) or Workbench (crisp, fast)
+        self.var_engine = tk.StringVar(value=self.cfg.get("engine", ENGINE_LABELS[0]))
+        if self.var_engine.get() not in ENGINE_LABELS:
+            self.var_engine.set(ENGINE_LABELS[0])
         self.var_res = tk.StringVar(value=str(self.cfg.get("res", 4000)))
         self.var_samples = tk.StringVar(value=str(self.cfg.get("samples", 128)))
 
@@ -666,18 +674,23 @@ class App(tk.Tk):
                         variable=self.var_mode, command=self._mode_changed).pack(side="left", padx=(14, 0))
         r1 = ttk.Frame(p)
         r1.pack(fill="x")
-        ttk.Label(r1, text="resolution:").pack(side="left", padx=(24, 0))
+        ttk.Label(r1, text="engine:").pack(side="left", padx=(24, 0))
+        self.cb_engine = ttk.Combobox(r1, textvariable=self.var_engine, width=19,
+                                      state="readonly", values=ENGINE_LABELS)
+        self.cb_engine.pack(side="left", padx=(4, 0))
+        self.cb_engine.bind("<<ComboboxSelected>>", lambda e: self._mode_changed())
+        ttk.Label(r1, text="  resolution:").pack(side="left")
         self.cb_res = ttk.Combobox(r1, textvariable=self.var_res, width=6, state="readonly",
                                    values=("1000", "2000", "3000", "4000", "6000", "8000"))
         self.cb_res.pack(side="left", padx=(4, 0))
-        ttk.Label(r1, text="  quality (samples):").pack(side="left")
+        ttk.Label(r1, text="  samples:").pack(side="left")
         self.cb_samples = ttk.Combobox(r1, textvariable=self.var_samples, width=5, state="readonly",
                                        values=("16", "32", "64", "128", "256", "512"))
         self.cb_samples.pack(side="left", padx=(4, 0))
-        self.chk_both = ttk.Checkbutton(r1, text="both sides (A + B)", variable=self.var_both)
-        self.chk_both.pack(side="left", padx=(12, 0))
+        self.chk_both = ttk.Checkbutton(r1, text="sides A + B", variable=self.var_both)
+        self.chk_both.pack(side="left", padx=(10, 0))
         ttk.Checkbutton(r1, text="overwrite existing PNGs",
-                        variable=self.var_overwrite_png).pack(side="left", padx=(12, 0))
+                        variable=self.var_overwrite_png).pack(side="left", padx=(10, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
         ttk.Checkbutton(r2, text="Pack into ZIP", variable=self.var_zip).pack(side="left")
@@ -736,8 +749,11 @@ class App(tk.Tk):
     def _mode_changed(self):
         """Resolution, samples and A/B belong to the full sheets only."""
         full = self.var_mode.get() == "full"
-        for w in (self.cb_res, self.cb_samples):
+        for w in (self.cb_engine, self.cb_res):
             w.configure(state="readonly" if full else "disabled")
+        # samples only mean something for Cycles
+        cycles = ENGINE_ARGS.get(self.var_engine.get()) == "cycles"
+        self.cb_samples.configure(state="readonly" if full and cycles else "disabled")
         self.chk_both.configure(state="normal" if full else "disabled")
 
 
@@ -912,6 +928,7 @@ class App(tk.Tk):
             "overwrite_zip": self.var_overwrite_zip.get(),
             "both_sides": self.var_both.get(),
             "render_mode": self.var_mode.get(),
+            "engine": self.var_engine.get(),
             "res": int(self.var_res.get()),
             "samples": int(self.var_samples.get()),
         })
@@ -963,6 +980,7 @@ class App(tk.Tk):
             "samples": self.var_samples.get(),
             "both": self.var_both.get(),
             "mode": self.var_mode.get(),
+            "engine": ENGINE_ARGS.get(self.var_engine.get(), "cycles"),
         }
         for n in names:
             if n in job["render"]:
@@ -1116,7 +1134,7 @@ class App(tk.Tk):
         if job["mode"] == "preview":
             cmd.append("--preview")
         else:
-            cmd += ["--res", job["res"], "--samples", job["samples"]]
+            cmd += ["--res", job["res"], "--samples", job["samples"], "--engine", job["engine"]]
             if not job["both"]:
                 cmd.append("--one-side")
         for n in names:
