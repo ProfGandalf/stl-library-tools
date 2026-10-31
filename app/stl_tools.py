@@ -37,6 +37,9 @@ APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 RENDER_SCRIPT = os.path.join(APP_DIR, "render_grid.py")
 ICON_PNG = os.path.join(APP_DIR, "icon", "icon.png")
 ICON_ICO = os.path.join(APP_DIR, "icon", "icon.ico")
+# file types the sheets / previews can be saved as (render_grid.py --format)
+IMAGE_FORMATS = ("png", "jpg", "webp")
+SHEET_EXTS = tuple("." + f for f in IMAGE_FORMATS)
 APP_ID = "stl-tools"      # WM_CLASS on Linux, .desktop / icon name
 
 # same extensions as in render_grid.py
@@ -362,11 +365,12 @@ def scan_tree(root):
                         models += 1
                     elif fl.endswith(".3mf"):
                         mf3 += 1
-            png = (os.path.isfile(os.path.join(base, name + "_A.png"))
-                   or os.path.isfile(os.path.join(base, name + ".png")))
+            png = any(os.path.isfile(os.path.join(base, name + suf + ext))
+                      for suf in ("_A", "") for ext in SHEET_EXTS)
             nodes.append({"kind": "set", "rel": rel, "name": name,
                           "models": models, "mf3": mf3, "png": png,
-                          "prev": os.path.isfile(os.path.join(base, name + "_preview_A.png")),
+                          "prev": any(os.path.isfile(os.path.join(base, name + "_preview_A" + ext))
+                                      for ext in SHEET_EXTS),
                           "zip": os.path.isfile(os.path.join(base, name + ".zip"))})
         return nodes
     return walk("")
@@ -503,6 +507,9 @@ class App(tk.Tk):
         # (name_preview_A.png fast render + name_preview_B.png vendor image)
         self.var_mode = tk.StringVar(value=self.cfg.get("render_mode", "full"))
         # engine of the full sheets: Cycles (realistic) or Workbench (crisp, fast)
+        self.var_format = tk.StringVar(value=self.cfg.get("image_format", "png"))
+        if self.var_format.get() not in IMAGE_FORMATS:
+            self.var_format.set("png")
         self.var_engine = tk.StringVar(value=self.cfg.get("engine", ENGINE_LABELS[0]))
         if self.var_engine.get() not in ENGINE_LABELS:
             self.var_engine.set(ENGINE_LABELS[0])
@@ -630,7 +637,7 @@ class App(tk.Tk):
         bar.pack(fill="x", pady=(0, 6))
         ttk.Button(bar, text="All", command=lambda: self.select("all")).pack(side="left")
         ttk.Button(bar, text="None", command=lambda: self.select("none")).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="Without PNG", command=lambda: self.select("nopng")).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Without sheet", command=lambda: self.select("nopng")).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Without ZIP", command=lambda: self.select("nozip")).pack(side="left", padx=(6, 0))
         self.lbl_count = ttk.Label(bar, text="", style="Dim.TLabel")
         self.lbl_count.pack(side="right")
@@ -644,7 +651,7 @@ class App(tk.Tk):
         self.tree.column("#0", width=300, anchor="w", stretch=True)
         for c, txt, w, anchor, stretch in (
                 ("models", "Models", 80, "center", False),
-                ("png", "PNG", 50, "center", False),
+                ("png", "Sheet", 50, "center", False),
                 ("prev", "Preview", 64, "center", False),
                 ("zip", "ZIP", 50, "center", False),
                 ("st_render", "Render", 170, "w", True),
@@ -670,7 +677,7 @@ class App(tk.Tk):
         r0 = ttk.Frame(p)
         r0.pack(fill="x", pady=(0, 6))
         ttk.Checkbutton(r0, text="Render (Blender):", variable=self.var_render).pack(side="left")
-        ttk.Radiobutton(r0, text="full sheets  (name_A / _B.png)", value="full",
+        ttk.Radiobutton(r0, text="full sheets  (name_A / _B)", value="full",
                         variable=self.var_mode, command=self._mode_changed).pack(side="left", padx=(10, 0))
         ttk.Radiobutton(r0, text="quick preview  (name_preview_A: fast render, "
                                  "_preview_B: picture from the folder)", value="preview",
@@ -692,8 +699,15 @@ class App(tk.Tk):
         self.cb_samples.pack(side="left", padx=(4, 0))
         self.chk_both = ttk.Checkbutton(r1, text="sides A + B", variable=self.var_both)
         self.chk_both.pack(side="left", padx=(10, 0))
-        ttk.Checkbutton(r1, text="overwrite existing PNGs",
-                        variable=self.var_overwrite_png).pack(side="left", padx=(10, 0))
+        r1b = ttk.Frame(p)
+        r1b.pack(fill="x", pady=(4, 0))
+        ttk.Label(r1b, text="save as:").pack(side="left", padx=(24, 0))
+        ttk.Combobox(r1b, textvariable=self.var_format, width=6, state="readonly",
+                     values=IMAGE_FORMATS).pack(side="left", padx=(4, 0))
+        ttk.Label(r1b, text="png = lossless, jpg = smallest, webp = lossless and smaller than png",
+                  style="Dim.TLabel").pack(side="left", padx=(8, 0))
+        ttk.Checkbutton(r1b, text="overwrite existing images",
+                        variable=self.var_overwrite_png).pack(side="left", padx=(14, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
         ttk.Checkbutton(r2, text="Pack into ZIP", variable=self.var_zip).pack(side="left")
@@ -931,6 +945,7 @@ class App(tk.Tk):
             "overwrite_zip": self.var_overwrite_zip.get(),
             "both_sides": self.var_both.get(),
             "render_mode": self.var_mode.get(),
+            "image_format": self.var_format.get(),
             "engine": self.var_engine.get(),
             "res": self.var_res.get(),          # a number or "auto"
             "samples": int(self.var_samples.get()),
@@ -954,7 +969,7 @@ class App(tk.Tk):
             messagebox.showinfo("Nothing to do", "Tick at least one folder.")
             return
         render_names = [n for n in names if self.rows[n]["models"] > 0]
-        # without "overwrite existing PNGs" a folder that already has its sheet(s)
+        # without "overwrite existing images" a folder that already has its sheet(s)
         # is not sent to Blender at all - no import, no render (it is still zipped)
         png_kept = []
         if do_render and not self.var_overwrite_png.get():
@@ -984,6 +999,7 @@ class App(tk.Tk):
             "both": self.var_both.get(),
             "mode": self.var_mode.get(),
             "engine": ENGINE_ARGS.get(self.var_engine.get(), "cycles"),
+            "format": self.var_format.get(),
         }
         for n in names:
             if n in job["render"]:
@@ -1134,6 +1150,7 @@ class App(tk.Tk):
         names = job["render"]
         cmd = [job["blender"], "--background", "--python", RENDER_SCRIPT, "--",
                "--folder", job["folder"]]
+        cmd += ["--format", job["format"]]
         if job["mode"] == "preview":
             cmd.append("--preview")
         else:
@@ -1221,6 +1238,7 @@ class App(tk.Tk):
                     # "ok" from the script is not enough - main() returns without
                     # rendering when nothing was imported; a fresh PNG on disk counts
                     ok = parts[1] == "ok" and self._fresh_png(job["folder"], name, t_start,
+                                                              "." + job["format"],
                                                               job["mode"])
                     res[0 if ok else 1] += 1
                     if ok and preview:
@@ -1268,22 +1286,26 @@ class App(tk.Tk):
 
     @staticmethod
     def _has_png(root, rel, both, mode="full"):
-        """True when the set already has its sheet(s): name_A.png and
-        name_B.png for A + B, or name.png for one side; in preview mode
-        name_preview_A.png (preview B depends on a picture being there)."""
+        """True when the set already has its sheet(s), in any of the image
+        formats: name_A + name_B for A + B, or name for one side; in preview
+        mode name_preview_A (preview B depends on a picture being there)."""
         parent, name = split_rel(root, rel)
+
+        def has(suffix):
+            return any(os.path.isfile(os.path.join(parent, name + suffix + ext))
+                       for ext in SHEET_EXTS)
         if mode == "preview":
-            return os.path.isfile(os.path.join(parent, name + "_preview_A.png"))
+            return has("_preview_A")
         if both:
-            return all(os.path.isfile(os.path.join(parent, name + s))
-                       for s in ("_A.png", "_B.png"))
-        return os.path.isfile(os.path.join(parent, name + ".png"))
+            return has("_A") and has("_B")
+        return has("")
 
     @staticmethod
-    def _fresh_png(root, rel, since, mode="full"):
+    def _fresh_png(root, rel, since, ext=".png", mode="full"):
+        """A sheet in the format just rendered, written during this run."""
         parent, name = split_rel(root, rel)
-        for suf in (("_preview_A.png",) if mode == "preview" else ("_A.png", ".png")):
-            p = os.path.join(parent, name + suf)
+        for suf in (("_preview_A",) if mode == "preview" else ("_A", "")):
+            p = os.path.join(parent, name + suf + ext)
             if os.path.isfile(p) and os.path.getmtime(p) >= since:
                 return True
         return False
@@ -1478,7 +1500,7 @@ class App(tk.Tk):
         r, z = results["render"], results["zip"]
         if did_render or self.png_kept:
             parts.append("render: %d ok%s%s" % (
-                r[0], ", %d skipped (PNG exists)" % self.png_kept if self.png_kept else "",
+                r[0], ", %d skipped (image exists)" % self.png_kept if self.png_kept else "",
                 ", %d errors" % r[1] if r[1] else ""))
         if did_zip:
             parts.append("ZIP: %d zipped, %d skipped%s" % (

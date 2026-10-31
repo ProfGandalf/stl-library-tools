@@ -29,6 +29,18 @@ Two versions:
   `auto_resolution()` runs after the layout and camera are set and picks the lowest of
   `AUTO_RES_STEPS` (4000/6000/8000) at which the 10th-percentile part (longer side) is at
   least `AUTO_RES_MIN_PART_PX` (150) px across; per set, both engines; not for the preview.
+- **Image format** (`IMAGE_FORMAT` / `--format png|jpg|webp`, "save as" in the app; png is
+  the default): applies to the sheets and both previews (`image_ext()`, `set_image_format()`,
+  `save_as()`; vendor pictures already in the right type are copied as is). WebP is saved
+  with quality 100 = lossless (verified pixel-identical to the PNG), JPG at `JPG_QUALITY` 92.
+  With png the render settings are untouched. The GUI accepts a sheet in any of the formats
+  as existing (`SHEET_EXTS`) and checks the fresh file in the chosen one.
+- **Workbench file size:** `setup_workbench()` sets `dither_intensity = 0` and PNG
+  `compression = 90`. Blender's default dithering noise made Workbench PNGs ~4x bigger
+  (4000 px: 13.9 -> 3.8 MB; 8000 px: 52.6 -> 11.9 MB), pixels differ by at most 1 level.
+  Cycles keeps its dithering (its gradients are where banding could show).
+- **Auto resolution with Cycles:** the override of the resolution must come after
+  `resolution_y = RES_Y`, otherwise the height falls back to 4000 (was a bug, fixed).
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

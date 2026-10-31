@@ -96,12 +96,14 @@ def _parse_args():
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
          --engine NAME      full sheets engine: cycles (default) or workbench
+         --format FMT       png (default), jpg or webp - type of all saved images
          --preview          quick preview instead of the full sheets:
                             name_preview_A.png (fast Workbench render of the
                             same layout) + name_preview_B.png (largest image
                             found in the set folder, e.g. the vendor's render)
     """
     global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW, ENGINE, RES_AUTO
+    global IMAGE_FORMAT
     if '--' not in sys.argv:
         return
     args = sys.argv[sys.argv.index('--') + 1:]
@@ -126,6 +128,10 @@ def _parse_args():
             i += 1
         elif a == '--one-side':
             RENDER_BOTH_SIDES = False
+        elif a == '--format' and val is not None:
+            if val.lower() in FORMATS:
+                IMAGE_FORMAT = val.lower()
+            i += 1
         elif a == '--engine' and val is not None:
             ENGINE = val.lower()
             i += 1
@@ -197,6 +203,14 @@ PREVIEW       = False       # True: quick preview mode (see --preview) - Workben
                             # is the same as on the full sheet
 PREVIEW_RES   = 1500        # preview resolution (px, square)
 IMAGE_EXTS    = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff')
+
+IMAGE_FORMAT  = "png"       # file type of everything saved (sheets and previews):
+                            #   "png"  - lossless (default)
+                            #   "jpg"  - smallest, quality JPG_QUALITY, softens fine edges
+                            #   "webp" - lossless WebP, ~1/3 smaller than PNG, but not
+                            #            every Windows viewer opens it smoothly
+JPG_QUALITY   = 92
+FORMATS = {"png": ('PNG', '.png'), "jpg": ('JPEG', '.jpg'), "webp": ('WEBP', '.webp')}
 
 # Aspect ratio of the model layout (width:height). 1.0 = square.
 # None -> match the image aspect automatically (RES_X / RES_Y).
@@ -675,6 +689,11 @@ def setup_workbench(scene, clay, floor_mat, res):
         scene.view_settings.view_transform = 'Standard'
     except Exception:
         pass
+    # Workbench images are flat colours, nothing to hide with dithering - and its
+    # pixel noise made the PNGs ~4x bigger (4000 px: 13.9 -> 3.8 MB, pixels
+    # differ by at most 1 level). Stronger PNG compression is still lossless.
+    scene.render.dither_intensity = 0.0
+    scene.render.image_settings.compression = 90
 
 
 def find_vendor_image(folder):
@@ -694,10 +713,26 @@ def find_vendor_image(folder):
     return best
 
 
-def save_as_png(src, dst):
-    """Copies a PNG as is, converts any other image to PNG (pixels unchanged,
-    no colour management applied)."""
-    if src.lower().endswith('.png'):
+def image_ext():
+    """File extension of the chosen IMAGE_FORMAT, e.g. '.png'."""
+    return FORMATS[IMAGE_FORMAT][1]
+
+
+def set_image_format(settings):
+    """Applies IMAGE_FORMAT to Blender image settings (render output)."""
+    settings.file_format = FORMATS[IMAGE_FORMAT][0]
+    if IMAGE_FORMAT == "jpg":
+        settings.color_mode = 'RGB'             # JPG has no alpha
+        settings.quality = JPG_QUALITY
+    elif IMAGE_FORMAT == "webp":
+        settings.quality = 100                  # 100 = lossless WebP in Blender
+
+
+def save_as(src, dst):
+    """Saves an image in IMAGE_FORMAT: copied as is when it already has the
+    right type, otherwise converted (pixels unchanged, no colour management)."""
+    if os.path.splitext(src)[1].lower() in (('.jpg', '.jpeg') if IMAGE_FORMAT == "jpg"
+                                            else (image_ext(),)):
         import shutil
         shutil.copyfile(src, dst)
         return
@@ -708,8 +743,9 @@ def save_as_png(src, dst):
             img.reload()
             _ = img.pixels[0]
         img.filepath_raw = dst
-        img.file_format = 'PNG'
-        img.save()
+        img.file_format = FORMATS[IMAGE_FORMAT][0]
+        # quality: JPG level; for WebP 100 means lossless; ignored for PNG
+        img.save(quality=JPG_QUALITY if IMAGE_FORMAT == "jpg" else 100)
     finally:
         bpy.data.images.remove(img)
 
@@ -1037,10 +1073,10 @@ def main(FOLDER, OUTPUT):
     scene.cycles.samples = SAMPLES
     scene.cycles.use_denoising = True
     scene.render.resolution_x = RES_X
+    scene.render.resolution_y = RES_Y
     if res != RES_X:                   # RES_AUTO picked another size for this set
         scene.render.resolution_x = res
         scene.render.resolution_y = res
-    scene.render.resolution_y = RES_Y
     scene.render.filepath = OUTPUT
     scene.render.image_settings.file_format = 'PNG'
     if TRANSPARENT_BG:
@@ -1058,6 +1094,8 @@ def main(FOLDER, OUTPUT):
         setup_workbench(scene, clay, fmat, PREVIEW_RES)
     elif ENGINE == "workbench":
         setup_workbench(scene, clay, fmat, res)
+    if IMAGE_FORMAT != "png":
+        set_image_format(scene.render.image_settings)
 
     if USE_GPU and not PREVIEW and ENGINE != "workbench":
         try:
@@ -1180,11 +1218,11 @@ def run_all():
         # the sheet goes next to the set folder (inside its group, if any)
         base = os.path.join(os.path.dirname(d), os.path.basename(d))
         if PREVIEW:
-            out = base + "_preview_A.png"
-            target = name + "_preview_A.png (+ _preview_B.png)"
+            out = base + "_preview_A" + image_ext()
+            target = name + "_preview_A%s (+ _preview_B%s)" % (image_ext(), image_ext())
         else:
-            out = base + ".png"
-            target = name + (" (_A + _B)" if RENDER_BOTH_SIDES else "") + ".png"
+            out = base + image_ext()
+            target = name + (" (_A + _B)" if RENDER_BOTH_SIDES else "") + image_ext()
         print("\n" + "-" * 60)
         print(f"  [{i}/{len(subs)}] {name}  ->  {target}")
         print("-" * 60)
@@ -1194,7 +1232,7 @@ def run_all():
                 vendor = find_vendor_image(d)
                 if vendor:
                     try:
-                        save_as_png(vendor, base + "_preview_B.png")
+                        save_as(vendor, base + "_preview_B" + image_ext())
                         print(f"  Preview B <- {os.path.relpath(vendor, d)}")
                         progress("IMAGE", "ok", name)
                     except Exception as e:
