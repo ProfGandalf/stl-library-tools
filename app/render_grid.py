@@ -91,15 +91,19 @@ def _parse_args():
          --folder PATH      parent folder with model subfolders
          --only PATH        process only this subfolder (can be repeated); a path
                             relative to --folder with "/", e.g. "_Vehicles/Rhino"
-         --res PX           resolution (square)
+         --res PX|auto      resolution (square); "auto" picks one of
+                            AUTO_RES_STEPS per set (see auto_resolution())
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
+         --engine NAME      full sheets engine: cycles (default) or workbench
+         --format FMT       png (default), jpg or webp - type of all saved images
          --preview          quick preview instead of the full sheets:
                             name_preview_A.png (fast Workbench render of the
                             same layout) + name_preview_B.png (largest image
                             found in the set folder, e.g. the vendor's render)
     """
-    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW
+    global FOLDER, ONLY, RES_X, RES_Y, SAMPLES, RENDER_BOTH_SIDES, PREVIEW, ENGINE, RES_AUTO
+    global IMAGE_FORMAT
     if '--' not in sys.argv:
         return
     args = sys.argv[sys.argv.index('--') + 1:]
@@ -114,13 +118,23 @@ def _parse_args():
             ONLY = (ONLY or []) + [val]
             i += 1
         elif a == '--res' and val is not None:
-            RES_X = RES_Y = int(val)
+            if val.lower() == "auto":
+                RES_AUTO = True
+            else:
+                RES_X = RES_Y = int(val)
             i += 1
         elif a == '--samples' and val is not None:
             SAMPLES = int(val)
             i += 1
         elif a == '--one-side':
             RENDER_BOTH_SIDES = False
+        elif a == '--format' and val is not None:
+            if val.lower() in FORMATS:
+                IMAGE_FORMAT = val.lower()
+            i += 1
+        elif a == '--engine' and val is not None:
+            ENGINE = val.lower()
+            i += 1
         elif a == '--preview':
             PREVIEW = True
             RENDER_BOTH_SIDES = False
@@ -164,6 +178,12 @@ if not OUTPUT:
 RES_X         = 4000        # horizontal resolution (px)
 RES_Y         = 4000        # vertical resolution (px)
 
+RES_AUTO      = False       # True: pick the resolution per set from AUTO_RES_STEPS -
+                            # the lowest one at which the small parts (smallest 10%)
+                            # are at least AUTO_RES_MIN_PART_PX across
+AUTO_RES_STEPS       = (4000, 6000, 8000)
+AUTO_RES_MIN_PART_PX = 150
+
 RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
                             #   name_A.png - models as the script placed them
                             #   name_B.png - the same models flipped over
@@ -172,11 +192,25 @@ RENDER_BOTH_SIDES = True    # True: every folder produces TWO files:
                             # compare and pick the better side. False = one file.
 SAMPLES       = 128         # render quality (more = nicer + slower)
 
+ENGINE        = "workbench" # engine of the full sheets:
+                            #   "workbench" - viewport look: studio light + cavity
+                            #                 edges, no shadows; crisp and fast
+                            #   "cycles"    - realistic light, AO, shadows (slow)
+                            # same layout, resolution and A/B either way
+
 PREVIEW       = False       # True: quick preview mode (see --preview) - Workbench
                             # instead of Cycles, one side, PREVIEW_RES; the layout
                             # is the same as on the full sheet
 PREVIEW_RES   = 1500        # preview resolution (px, square)
 IMAGE_EXTS    = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff')
+
+IMAGE_FORMAT  = "png"       # file type of everything saved (sheets and previews):
+                            #   "png"  - lossless (default)
+                            #   "jpg"  - smallest, quality JPG_QUALITY, softens fine edges
+                            #   "webp" - lossless WebP, ~1/3 smaller than PNG, but not
+                            #            every Windows viewer opens it smoothly
+JPG_QUALITY   = 92
+FORMATS = {"png": ('PNG', '.png'), "jpg": ('JPEG', '.jpg'), "webp": ('WEBP', '.webp')}
 
 # Aspect ratio of the model layout (width:height). 1.0 = square.
 # None -> match the image aspect automatically (RES_X / RES_Y).
@@ -609,14 +643,35 @@ def setup_lighting():
     sun("Rim",  (75, 0, 180),  0.9)    # back light, separates from background
 
 
-def setup_preview(scene, clay, floor_mat):
-    """Quick preview: Workbench (the viewport renderer) instead of Cycles -
-    no sampling, no denoising, about a second per image. Same colours as the
-    full sheet: Workbench uses the materials' viewport colour, so it is set
-    to the same bone / dark values as the node colours."""
+def auto_resolution(dims, frame_size):
+    """RES_AUTO: the lowest of AUTO_RES_STEPS at which the small parts (the
+    smallest 10% of the set, by their longer side) come out at least
+    AUTO_RES_MIN_PART_PX across. Measured on the real layout, so a set with
+    one huge part next to many tiny bits gets more pixels than its part count
+    alone would suggest. Falls back to the largest step."""
+    sides = sorted(max(w, h) for w, h in dims)
+    small = sides[int(0.1 * (len(sides) - 1))] if sides else 0.0
+    pick = AUTO_RES_STEPS[-1]
+    for step in AUTO_RES_STEPS:
+        if frame_size > 0 and small * step / frame_size >= AUTO_RES_MIN_PART_PX:
+            pick = step
+            break
+    px = small * pick / frame_size if frame_size > 0 else 0
+    print("  Auto resolution: %d px (%d parts, small parts ~%d px across)"
+          % (pick, len(dims), px))
+    return pick
+
+
+def setup_workbench(scene, clay, floor_mat, res):
+    """Workbench (the viewport renderer) instead of Cycles - used by the quick
+    preview and by ENGINE = "workbench". No sampling, no denoising, seconds
+    per image; studio light + cavity shading make fine relief easy to read.
+    Same colours as the Cycles sheet: Workbench uses the materials' viewport
+    colour, so it is set to the same bone / dark values as the node colours.
+    Only overrides settings made for Cycles - the layout is untouched."""
     scene.render.engine = 'BLENDER_WORKBENCH'
-    scene.render.resolution_x = PREVIEW_RES
-    scene.render.resolution_y = PREVIEW_RES
+    scene.render.resolution_x = res
+    scene.render.resolution_y = res
     clay.diffuse_color = (0.72, 0.70, 0.66, 1.0)        # light bone
     floor_mat.diffuse_color = (0.10, 0.11, 0.13, 1.0)   # dark background
     if scene.world:
@@ -634,6 +689,11 @@ def setup_preview(scene, clay, floor_mat):
         scene.view_settings.view_transform = 'Standard'
     except Exception:
         pass
+    # Workbench images are flat colours, nothing to hide with dithering - and its
+    # pixel noise made the PNGs ~4x bigger (4000 px: 13.9 -> 3.8 MB, pixels
+    # differ by at most 1 level). Stronger PNG compression is still lossless.
+    scene.render.dither_intensity = 0.0
+    scene.render.image_settings.compression = 90
 
 
 def find_vendor_image(folder):
@@ -653,10 +713,26 @@ def find_vendor_image(folder):
     return best
 
 
-def save_as_png(src, dst):
-    """Copies a PNG as is, converts any other image to PNG (pixels unchanged,
-    no colour management applied)."""
-    if src.lower().endswith('.png'):
+def image_ext():
+    """File extension of the chosen IMAGE_FORMAT, e.g. '.png'."""
+    return FORMATS[IMAGE_FORMAT][1]
+
+
+def set_image_format(settings):
+    """Applies IMAGE_FORMAT to Blender image settings (render output)."""
+    settings.file_format = FORMATS[IMAGE_FORMAT][0]
+    if IMAGE_FORMAT == "jpg":
+        settings.color_mode = 'RGB'             # JPG has no alpha
+        settings.quality = JPG_QUALITY
+    elif IMAGE_FORMAT == "webp":
+        settings.quality = 100                  # 100 = lossless WebP in Blender
+
+
+def save_as(src, dst):
+    """Saves an image in IMAGE_FORMAT: copied as is when it already has the
+    right type, otherwise converted (pixels unchanged, no colour management)."""
+    if os.path.splitext(src)[1].lower() in (('.jpg', '.jpeg') if IMAGE_FORMAT == "jpg"
+                                            else (image_ext(),)):
         import shutil
         shutil.copyfile(src, dst)
         return
@@ -667,8 +743,9 @@ def save_as_png(src, dst):
             img.reload()
             _ = img.pixels[0]
         img.filepath_raw = dst
-        img.file_format = 'PNG'
-        img.save()
+        img.file_format = FORMATS[IMAGE_FORMAT][0]
+        # quality: JPG level; for WebP 100 means lossless; ignored for PNG
+        img.save(quality=JPG_QUALITY if IMAGE_FORMAT == "jpg" else 100)
     finally:
         bpy.data.images.remove(img)
 
@@ -969,6 +1046,10 @@ def main(FOLDER, OUTPUT):
                 ext_y = max(ext_y, abs(p.y))
     cam_data.ortho_scale = 2.0 * max(ext_x, ext_y) * 1.06   # 6% margin
 
+    res = RES_X
+    if RES_AUTO and not PREVIEW:
+        res = auto_resolution(dims, cam_data.ortho_scale)
+
     # floor: created AFTER fitting the camera, sized relative to the frame
     # (not 4x the grid), centred on the models. In iso it has to be larger,
     # because the ground "runs away" into the depth of the frame.
@@ -993,6 +1074,9 @@ def main(FOLDER, OUTPUT):
     scene.cycles.use_denoising = True
     scene.render.resolution_x = RES_X
     scene.render.resolution_y = RES_Y
+    if res != RES_X:                   # RES_AUTO picked another size for this set
+        scene.render.resolution_x = res
+        scene.render.resolution_y = res
     scene.render.filepath = OUTPUT
     scene.render.image_settings.file_format = 'PNG'
     if TRANSPARENT_BG:
@@ -1007,9 +1091,13 @@ def main(FOLDER, OUTPUT):
     except Exception:
         pass
     if PREVIEW:
-        setup_preview(scene, clay, fmat)
+        setup_workbench(scene, clay, fmat, PREVIEW_RES)
+    elif ENGINE == "workbench":
+        setup_workbench(scene, clay, fmat, res)
+    if IMAGE_FORMAT != "png":
+        set_image_format(scene.render.image_settings)
 
-    if USE_GPU and not PREVIEW:
+    if USE_GPU and not PREVIEW and ENGINE != "workbench":
         try:
             prefs = bpy.context.preferences.addons['cycles'].preferences
             prefs.get_devices()
@@ -1130,11 +1218,11 @@ def run_all():
         # the sheet goes next to the set folder (inside its group, if any)
         base = os.path.join(os.path.dirname(d), os.path.basename(d))
         if PREVIEW:
-            out = base + "_preview_A.png"
-            target = name + "_preview_A.png (+ _preview_B.png)"
+            out = base + "_preview_A" + image_ext()
+            target = name + "_preview_A%s (+ _preview_B%s)" % (image_ext(), image_ext())
         else:
-            out = base + ".png"
-            target = name + (" (_A + _B)" if RENDER_BOTH_SIDES else "") + ".png"
+            out = base + image_ext()
+            target = name + (" (_A + _B)" if RENDER_BOTH_SIDES else "") + image_ext()
         print("\n" + "-" * 60)
         print(f"  [{i}/{len(subs)}] {name}  ->  {target}")
         print("-" * 60)
@@ -1144,7 +1232,7 @@ def run_all():
                 vendor = find_vendor_image(d)
                 if vendor:
                     try:
-                        save_as_png(vendor, base + "_preview_B.png")
+                        save_as(vendor, base + "_preview_B" + image_ext())
                         print(f"  Preview B <- {os.path.relpath(vendor, d)}")
                         progress("IMAGE", "ok", name)
                     except Exception as e:

@@ -17,9 +17,30 @@ Two versions:
     containing `ERROR` / `Error` / `!!!` as errors.
 - **Quick preview mode** (`--preview`, radio "quick preview" in the app): Workbench render
   of the same layout at `PREVIEW_RES` 1500 px, one side -> `name_preview_A.png`
-  (`setup_preview()` only overrides settings after the Cycles setup; full sheets untouched),
+  (`setup_workbench()` only overrides settings after the Cycles setup; full sheets untouched),
   plus the largest image in the set folder saved as PNG -> `name_preview_B.png`
   (`find_vendor_image()`, `save_as_png()`), reported with `@@ IMAGE ok|none|fail <rel>`.
+- **Full sheets engine** (`ENGINE` / `--engine cycles|workbench`, "engine" combobox in the app):
+  `"workbench"` runs the same `setup_workbench()` at `RES_X` with both sides A/B. Added after
+  the user compared a Cycles sheet with a quick preview and found the Workbench one more
+  readable (no shadows over neighbours, cavity edges). **Workbench is the default** (user's
+  choice), in the app and in `render_grid.py`; Cycles is the second option.
+- **Auto resolution** (`--res auto`, "auto" in the resolution list; 4000 stays the default):
+  `auto_resolution()` runs after the layout and camera are set and picks the lowest of
+  `AUTO_RES_STEPS` (4000/6000/8000) at which the 10th-percentile part (longer side) is at
+  least `AUTO_RES_MIN_PART_PX` (150) px across; per set, both engines; not for the preview.
+- **Image format** (`IMAGE_FORMAT` / `--format png|jpg|webp`, "save as" in the app; png is
+  the default): applies to the sheets and both previews (`image_ext()`, `set_image_format()`,
+  `save_as()`; vendor pictures already in the right type are copied as is). WebP is saved
+  with quality 100 = lossless (verified pixel-identical to the PNG), JPG at `JPG_QUALITY` 92.
+  With png the render settings are untouched. The GUI accepts a sheet in any of the formats
+  as existing (`SHEET_EXTS`) and checks the fresh file in the chosen one.
+- **Workbench file size:** `setup_workbench()` sets `dither_intensity = 0` and PNG
+  `compression = 90`. Blender's default dithering noise made Workbench PNGs ~4x bigger
+  (4000 px: 13.9 -> 3.8 MB; 8000 px: 52.6 -> 11.9 MB), pixels differ by at most 1 level.
+  Cycles keeps its dithering (its gradients are where banding could show).
+- **Auto resolution with Cycles:** the override of the resolution must come after
+  `resolution_y = RES_Y`, otherwise the height falls back to 4000 (was a bug, fixed).
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never
@@ -199,8 +220,16 @@ renders B. Do not split this back into two passes — it was a time optimisation
   **two** places (BSDF and the RGB node feeding the AO mix) — change both, otherwise
   they drift apart with AO enabled.
 - **Lights** are `SUN`, not `AREA` — they do not depend on scene scale, which is crucial
-  with `NORMALIZE = False`. A steep tilt (70°+) shortens shadows so they do not spill
-  onto neighbours in a tight layout.
+  with `NORMALIZE = False`.
+  **Correction (tested):** the X rotation of 70–75° does *not* give short shadows. A sun
+  with X = 0 points straight down, so X = 70° is a sun only 20° above the horizon:
+  shadows are ~2.75× the part height (70° → 2.75×, 45° → 1×, 25° → 0.47×) and they do
+  spill onto neighbours. A test with real Blender (Cycles, same scene, tilts 70–75 vs
+  45–55 vs 25–45) showed the trade-off: steeper suns give compact shadows but flatten the
+  surface relief (raking light is what shows it) and brighten the background (corner
+  63 → 96 → 105 of 255). The user found a Workbench sheet more readable than both, which
+  is why `ENGINE = "workbench"` exists. The Cycles tilts were left unchanged - change them
+  only if the user asks.
 
 ---
 
