@@ -48,8 +48,27 @@ The app can live anywhere. It does not need to be copied into the models folder.
    Inside a set folder (e.g. `Dreadnought/Arms`) every subfolder is part of that set,
    whatever its name.
 4. Choose what to do: render, ZIP or both. The render has two modes:
-   - **full sheets**: the real Cycles render, `name_A.png` + `name_B.png` (resolution,
-     quality and A/B apply here).
+   - **full sheets**: `name_A.png` + `name_B.png` (resolution and A/B apply here), with
+     an **engine** choice:
+     - *Workbench (fast)*, the default: the viewport look of the quick preview (studio
+       light, edges and recesses outlined, no shadows) at full resolution; crisp and
+       seconds per sheet;
+     - *Cycles (realistic)*: real light, ambient occlusion and shadows; slow (samples apply).
+
+     **Resolution** (default 4000 px) has an **auto** option: per set, after laying out
+     the sheet, it picks 4000, 6000 or 8000 px, the lowest at which the small parts (the
+     smallest 10% of the set) come out at least 150 px across. A set with one huge part and
+     many tiny bits therefore gets more pixels than its part count alone would suggest.
+     The chosen size is shown in the Log tab.
+
+   **Save as** sets the file type of everything saved (sheets and both previews):
+   - *webp* (default): lossless like png and ~40% smaller;
+   - *png*: lossless;
+   - *jpg*: the smallest (~5x smaller than png), slightly softens fine edges.
+
+   Measured with Workbench at 4000 px, one sheet: png ~3.8 MB, webp ~2.5 MB, jpg ~0.6 MB
+   (twice that per set with A + B). Existing sheets in any of these formats count for
+   "overwrite existing images" and the *Sheet* / *Preview* columns.
    - **quick preview**, to recognise a set at a glance:
      - `name_preview_A.png`: the same layout, rendered with Blender's fast Workbench
        engine at 1500 px, one side (seconds instead of minutes);
@@ -75,7 +94,13 @@ The app can live anywhere. It does not need to be copied into the models folder.
    **Stop** stops the work, and an unfinished ZIP is deleted.
 
 Full Blender output is in the **Log** tab.
-Settings (paths, options) are saved automatically:
+
+**Settings.** Every factory default is marked *(default)* in the window. To keep your own
+choice of options for the next start, press **Save as my settings**; **Restore defaults**
+switches back to the factory defaults (press *Save* afterwards to make that permanent too).
+Changes that are not saved are forgotten when the app closes. A small label next to the
+buttons shows *using: defaults*, *using: my saved settings* or *changed - not saved*.
+The folder and Blender paths are always remembered. Everything is stored in
 `%APPDATA%\stl-library-tools\config.json` / `~/.config/stl-library-tools/config.json`.
 
 ## Files
