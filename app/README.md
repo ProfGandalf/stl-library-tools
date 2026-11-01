@@ -62,9 +62,9 @@ The app can live anywhere. It does not need to be copied into the models folder.
      The chosen size is shown in the Log tab.
 
    **Save as** sets the file type of everything saved (sheets and both previews):
-   - *png* (default): lossless;
-   - *jpg*: the smallest (~5x smaller than png), slightly softens fine edges;
-   - *webp*: lossless like png and ~40% smaller, but not every Windows viewer opens it smoothly.
+   - *webp* (default): lossless like png and ~40% smaller;
+   - *png*: lossless;
+   - *jpg*: the smallest (~5x smaller than png), slightly softens fine edges.
 
    Measured with Workbench at 4000 px, one sheet: png ~3.8 MB, webp ~2.5 MB, jpg ~0.6 MB
    (twice that per set with A + B). Existing sheets in any of these formats count for
@@ -94,7 +94,13 @@ The app can live anywhere. It does not need to be copied into the models folder.
    **Stop** stops the work, and an unfinished ZIP is deleted.
 
 Full Blender output is in the **Log** tab.
-Settings (paths, options) are saved automatically:
+
+**Settings.** Every factory default is marked *(default)* in the window. To keep your own
+choice of options for the next start, press **Save as my settings**; **Restore defaults**
+switches back to the factory defaults (press *Save* afterwards to make that permanent too).
+Changes that are not saved are forgotten when the app closes. A small label next to the
+buttons shows *using: defaults*, *using: my saved settings* or *changed - not saved*.
+The folder and Blender paths are always remembered. Everything is stored in
 `%APPDATA%\stl-library-tools\config.json` / `~/.config/stl-library-tools/config.json`.
 
 ## Files

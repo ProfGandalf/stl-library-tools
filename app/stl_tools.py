@@ -38,7 +38,7 @@ RENDER_SCRIPT = os.path.join(APP_DIR, "render_grid.py")
 ICON_PNG = os.path.join(APP_DIR, "icon", "icon.png")
 ICON_ICO = os.path.join(APP_DIR, "icon", "icon.ico")
 # file types the sheets / previews can be saved as (render_grid.py --format)
-IMAGE_FORMATS = ("png", "jpg", "webp")
+IMAGE_FORMATS = ("webp", "png", "jpg")
 SHEET_EXTS = tuple("." + f for f in IMAGE_FORMATS)
 APP_ID = "stl-tools"      # WM_CLASS on Linux, .desktop / icon name
 
@@ -454,8 +454,58 @@ class FancyBar(tk.Canvas):
 
 # full sheets engine: label in the app -> value for render_grid.py --engine
 # the first one is the default - Workbench, the user found it more readable
-ENGINE_LABELS = ("Workbench (fast)", "Cycles (realistic)")
-ENGINE_ARGS = {"Cycles (realistic)": "cycles", "Workbench (fast)": "workbench"}
+ENGINE_NAMES = {"workbench": "Workbench (fast)", "cycles": "Cycles (realistic)"}
+
+# factory defaults of every option; "(default)" in the UI always marks these,
+# not the user's saved settings
+DEFAULTS = {
+    "do_render": True,
+    "render_mode": "full",
+    "engine": "workbench",
+    "res": "4000",
+    "samples": "128",
+    "both_sides": True,
+    "image_format": "webp",
+    "overwrite_png": True,
+    "do_zip": True,
+    "overwrite_zip": True,
+}
+CHOICES = {
+    "engine": ("workbench", "cycles"),
+    "res": ("1000", "2000", "3000", "4000", "6000", "8000", "auto"),
+    "samples": ("16", "32", "64", "128", "256", "512"),
+    "image_format": IMAGE_FORMATS,
+    "render_mode": ("full", "preview"),
+}
+DEFAULT_TAG = " (default)"
+
+
+class Choice:
+    """A combobox option: shows labels ("webp (default)", "Workbench (fast)")
+    but get() / set() work with the plain values ("webp", "workbench")."""
+
+    def __init__(self, key, value, names=None):
+        self.key, self.names = key, names or {}
+        self.values = CHOICES[key]
+        self.var = tk.StringVar()
+        self.set(value)
+
+    def label(self, v):
+        text = self.names.get(v, v)
+        return text + DEFAULT_TAG if v == DEFAULTS[self.key] else text
+
+    def labels(self):
+        return [self.label(v) for v in self.values]
+
+    def get(self):
+        shown = self.var.get()
+        for v in self.values:
+            if self.label(v) == shown:
+                return v
+        return DEFAULTS[self.key]
+
+    def set(self, v):
+        self.var.set(self.label(v if v in self.values else DEFAULTS[self.key]))
 
 SAMPLE_RE = re.compile(r"Sample (\d+)/(\d+)")
 # Cycles renders large images in tiles: "Rendered 1/4 Tiles, Sample 64/128"
@@ -498,30 +548,27 @@ class App(tk.Tk):
 
         self.var_folder = tk.StringVar(value=self.cfg.get("folder", ""))
         self.var_blender = tk.StringVar(value=self.cfg.get("blender") or find_blender() or "")
-        self.var_render = tk.BooleanVar(value=self.cfg.get("do_render", True))
-        self.var_zip = tk.BooleanVar(value=self.cfg.get("do_zip", True))
-        self.var_overwrite_png = tk.BooleanVar(value=self.cfg.get("overwrite_png", True))
-        self.var_overwrite_zip = tk.BooleanVar(value=self.cfg.get("overwrite_zip", True))
-        self.var_both = tk.BooleanVar(value=self.cfg.get("both_sides", True))
-        # "full" = the real sheets (Cycles, name_A/_B.png), "preview" = quick look
-        # (name_preview_A.png fast render + name_preview_B.png vendor image)
-        self.var_mode = tk.StringVar(value=self.cfg.get("render_mode", "full"))
-        # engine of the full sheets: Cycles (realistic) or Workbench (crisp, fast)
-        self.var_format = tk.StringVar(value=self.cfg.get("image_format", "png"))
-        if self.var_format.get() not in IMAGE_FORMATS:
-            self.var_format.set("png")
-        self.var_engine = tk.StringVar(value=self.cfg.get("engine", ENGINE_LABELS[0]))
-        if self.var_engine.get() not in ENGINE_LABELS:
-            self.var_engine.set(ENGINE_LABELS[0])
-        self.var_res = tk.StringVar(value=str(self.cfg.get("res", 4000)))
-        if self.var_res.get() not in ("1000", "2000", "3000", "4000", "6000", "8000", "auto"):
-            self.var_res.set("4000")
-        self.var_samples = tk.StringVar(value=str(self.cfg.get("samples", 128)))
+        # options: the user's saved settings ("Save as my settings") or the
+        # factory defaults - changes that are not saved are not kept
+        self.var_render = tk.BooleanVar()
+        self.var_zip = tk.BooleanVar()
+        self.var_overwrite_png = tk.BooleanVar()
+        self.var_overwrite_zip = tk.BooleanVar()
+        self.var_both = tk.BooleanVar()
+        # "full" = the real sheets (name_A/_B), "preview" = quick look
+        # (name_preview_A fast render + name_preview_B vendor image)
+        self.var_mode = tk.StringVar()
+        self.opt_format = Choice("image_format", None)
+        self.opt_engine = Choice("engine", None, ENGINE_NAMES)
+        self.opt_res = Choice("res", None)
+        self.opt_samples = Choice("samples", None)
+        self._apply_settings(self._saved_settings() or DEFAULTS)
 
         self._style()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self._mode_changed()
+        self._settings_state()
         self.after(100, self._poll)
         if self.var_folder.get():
             self.refresh()
@@ -676,42 +723,52 @@ class App(tk.Tk):
         tasks_panel = p
         r0 = ttk.Frame(p)
         r0.pack(fill="x", pady=(0, 6))
-        ttk.Checkbutton(r0, text="Render (Blender):", variable=self.var_render).pack(side="left")
-        ttk.Radiobutton(r0, text="full sheets  (name_A / _B)", value="full",
+        ttk.Checkbutton(r0, text="Render (Blender) (default):", variable=self.var_render).pack(side="left")
+        ttk.Radiobutton(r0, text="full sheets (default)  (name_A / _B)", value="full",
                         variable=self.var_mode, command=self._mode_changed).pack(side="left", padx=(10, 0))
-        ttk.Radiobutton(r0, text="quick preview  (name_preview_A: fast render, "
-                                 "_preview_B: picture from the folder)", value="preview",
+        ttk.Radiobutton(r0, text="quick preview  (name_preview_A: fast render, _B: folder picture)", value="preview",
                         variable=self.var_mode, command=self._mode_changed).pack(side="left", padx=(14, 0))
         r1 = ttk.Frame(p)
         r1.pack(fill="x")
         ttk.Label(r1, text="engine:").pack(side="left", padx=(24, 0))
-        self.cb_engine = ttk.Combobox(r1, textvariable=self.var_engine, width=19,
-                                      state="readonly", values=ENGINE_LABELS)
+        self.cb_engine = ttk.Combobox(r1, textvariable=self.opt_engine.var, width=26,
+                                      state="readonly", values=self.opt_engine.labels())
         self.cb_engine.pack(side="left", padx=(4, 0))
         self.cb_engine.bind("<<ComboboxSelected>>", lambda e: self._mode_changed())
         ttk.Label(r1, text="  resolution:").pack(side="left")
-        self.cb_res = ttk.Combobox(r1, textvariable=self.var_res, width=6, state="readonly",
-                                   values=("1000", "2000", "3000", "4000", "6000", "8000", "auto"))
+        self.cb_res = ttk.Combobox(r1, textvariable=self.opt_res.var, width=14, state="readonly",
+                                   values=self.opt_res.labels())
         self.cb_res.pack(side="left", padx=(4, 0))
         ttk.Label(r1, text="  samples:").pack(side="left")
-        self.cb_samples = ttk.Combobox(r1, textvariable=self.var_samples, width=5, state="readonly",
-                                       values=("16", "32", "64", "128", "256", "512"))
+        self.cb_samples = ttk.Combobox(r1, textvariable=self.opt_samples.var, width=13,
+                                       state="readonly", values=self.opt_samples.labels())
         self.cb_samples.pack(side="left", padx=(4, 0))
-        self.chk_both = ttk.Checkbutton(r1, text="sides A + B", variable=self.var_both)
+        self.chk_both = ttk.Checkbutton(r1, text="sides A + B (default)", variable=self.var_both)
         self.chk_both.pack(side="left", padx=(10, 0))
         r1b = ttk.Frame(p)
         r1b.pack(fill="x", pady=(4, 0))
         ttk.Label(r1b, text="save as:").pack(side="left", padx=(24, 0))
-        ttk.Combobox(r1b, textvariable=self.var_format, width=6, state="readonly",
-                     values=IMAGE_FORMATS).pack(side="left", padx=(4, 0))
-        ttk.Label(r1b, text="png = lossless, jpg = smallest, webp = lossless and smaller than png",
+        ttk.Combobox(r1b, textvariable=self.opt_format.var, width=14, state="readonly",
+                     values=self.opt_format.labels()).pack(side="left", padx=(4, 0))
+        ttk.Label(r1b, text="webp / png = lossless (webp smaller), jpg = smallest",
                   style="Dim.TLabel").pack(side="left", padx=(8, 0))
-        ttk.Checkbutton(r1b, text="overwrite existing images",
+        ttk.Checkbutton(r1b, text="overwrite existing images (default)",
                         variable=self.var_overwrite_png).pack(side="left", padx=(14, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
-        ttk.Checkbutton(r2, text="Pack into ZIP", variable=self.var_zip).pack(side="left")
-        ttk.Checkbutton(r2, text="overwrite existing ZIPs", variable=self.var_overwrite_zip).pack(side="left", padx=(12, 0))
+        ttk.Checkbutton(r2, text="Pack into ZIP (default)", variable=self.var_zip).pack(side="left")
+        ttk.Checkbutton(r2, text="overwrite existing ZIPs (default)",
+                        variable=self.var_overwrite_zip).pack(side="left", padx=(12, 0))
+        # saved settings: kept for the next start only when saved here
+        ttk.Button(r2, text="Restore defaults", command=self.restore_defaults).pack(side="right")
+        ttk.Button(r2, text="Save as my settings",
+                   command=self.save_settings).pack(side="right", padx=(0, 6))
+        self.lbl_settings = ttk.Label(r2, text="", style="Dim.TLabel")
+        self.lbl_settings.pack(side="right", padx=(0, 10))
+        for v in (self.var_render, self.var_mode, self.var_both, self.var_overwrite_png,
+                  self.var_zip, self.var_overwrite_zip, self.opt_engine.var,
+                  self.opt_res.var, self.opt_samples.var, self.opt_format.var):
+            v.trace_add("write", self._settings_state)
 
         # --- progress
         p = self._panel(root, "Progress")
@@ -769,7 +826,7 @@ class App(tk.Tk):
         for w in (self.cb_engine, self.cb_res):
             w.configure(state="readonly" if full else "disabled")
         # samples only mean something for Cycles
-        cycles = ENGINE_ARGS.get(self.var_engine.get()) == "cycles"
+        cycles = self.opt_engine.get() == "cycles"
         self.cb_samples.configure(state="readonly" if full and cycles else "disabled")
         self.chk_both.configure(state="normal" if full else "disabled")
 
@@ -936,21 +993,77 @@ class App(tk.Tk):
         self.log.configure(state="disabled")
 
     def _save(self):
+        """Remembers the paths automatically. Options are only kept when the user
+        presses "Save as my settings" (they live under cfg["settings"])."""
+        for k in DEFAULTS:                  # old versions auto-saved the options
+            self.cfg.pop(k, None)
         self.cfg.update({
             "folder": self.var_folder.get(),
             "blender": self.var_blender.get(),
-            "do_render": self.var_render.get(),
-            "do_zip": self.var_zip.get(),
-            "overwrite_png": self.var_overwrite_png.get(),
-            "overwrite_zip": self.var_overwrite_zip.get(),
-            "both_sides": self.var_both.get(),
-            "render_mode": self.var_mode.get(),
-            "image_format": self.var_format.get(),
-            "engine": self.var_engine.get(),
-            "res": self.var_res.get(),          # a number or "auto"
-            "samples": int(self.var_samples.get()),
         })
         save_config(self.cfg)
+
+    # ---------------------------------------------------- saved settings
+    def _current_settings(self):
+        return {
+            "do_render": self.var_render.get(),
+            "render_mode": self.var_mode.get(),
+            "engine": self.opt_engine.get(),
+            "res": self.opt_res.get(),
+            "samples": self.opt_samples.get(),
+            "both_sides": self.var_both.get(),
+            "image_format": self.opt_format.get(),
+            "overwrite_png": self.var_overwrite_png.get(),
+            "do_zip": self.var_zip.get(),
+            "overwrite_zip": self.var_overwrite_zip.get(),
+        }
+
+    def _saved_settings(self):
+        saved = self.cfg.get("settings")
+        if not isinstance(saved, dict):
+            return None
+        out = dict(DEFAULTS)
+        for k, v in saved.items():
+            if k in out and (k not in CHOICES or v in CHOICES[k]):
+                out[k] = v
+        return out
+
+    def _apply_settings(self, st):
+        self.var_render.set(st["do_render"])
+        self.var_mode.set(st["render_mode"])
+        self.opt_engine.set(st["engine"])
+        self.opt_res.set(st["res"])
+        self.opt_samples.set(st["samples"])
+        self.var_both.set(st["both_sides"])
+        self.opt_format.set(st["image_format"])
+        self.var_overwrite_png.set(st["overwrite_png"])
+        self.var_zip.set(st["do_zip"])
+        self.var_overwrite_zip.set(st["overwrite_zip"])
+        if hasattr(self, "cb_engine"):
+            self._mode_changed()
+
+    def save_settings(self):
+        self.cfg["settings"] = self._current_settings()
+        self._save()
+        self._settings_state()
+
+    def restore_defaults(self):
+        self._apply_settings(DEFAULTS)
+        self._settings_state()
+
+    def _settings_state(self, *_):
+        """Shows whether the options are the defaults, the saved ones or changed."""
+        if not hasattr(self, "lbl_settings"):
+            return
+        cur = self._current_settings()
+        saved = self._saved_settings()
+        if saved is not None and cur == saved:
+            text = "using: my saved settings" + (" (= defaults)" if cur == DEFAULTS else "")
+        elif cur == DEFAULTS:
+            text = "using: defaults"
+        else:
+            text = "changed - not saved"
+        self.lbl_settings.configure(text=text)
 
     # -------------------------------------------------------- start/stop
     def start(self):
@@ -994,12 +1107,12 @@ class App(tk.Tk):
             "render": render_names if do_render else [],
             "zip": names if do_zip else [],
             "overwrite_zip": self.var_overwrite_zip.get(),
-            "res": self.var_res.get(),
-            "samples": self.var_samples.get(),
+            "res": self.opt_res.get(),
+            "samples": self.opt_samples.get(),
             "both": self.var_both.get(),
             "mode": self.var_mode.get(),
-            "engine": ENGINE_ARGS.get(self.var_engine.get(), "cycles"),
-            "format": self.var_format.get(),
+            "engine": self.opt_engine.get(),
+            "format": self.opt_format.get(),
         }
         for n in names:
             if n in job["render"]:

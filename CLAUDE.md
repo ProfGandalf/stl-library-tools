@@ -18,8 +18,8 @@ Two versions:
 - **Quick preview mode** (`--preview`, radio "quick preview" in the app): Workbench render
   of the same layout at `PREVIEW_RES` 1500 px, one side -> `name_preview_A.png`
   (`setup_workbench()` only overrides settings after the Cycles setup; full sheets untouched),
-  plus the largest image in the set folder saved as PNG -> `name_preview_B.png`
-  (`find_vendor_image()`, `save_as_png()`), reported with `@@ IMAGE ok|none|fail <rel>`.
+  plus the largest image in the set folder saved in the chosen format -> `name_preview_B`
+  (`find_vendor_image()`, `save_as()`), reported with `@@ IMAGE ok|none|fail <rel>`.
 - **Full sheets engine** (`ENGINE` / `--engine cycles|workbench`, "engine" combobox in the app):
   `"workbench"` runs the same `setup_workbench()` at `RES_X` with both sides A/B. Added after
   the user compared a Cycles sheet with a quick preview and found the Workbench one more
@@ -29,8 +29,8 @@ Two versions:
   `auto_resolution()` runs after the layout and camera are set and picks the lowest of
   `AUTO_RES_STEPS` (4000/6000/8000) at which the 10th-percentile part (longer side) is at
   least `AUTO_RES_MIN_PART_PX` (150) px across; per set, both engines; not for the preview.
-- **Image format** (`IMAGE_FORMAT` / `--format png|jpg|webp`, "save as" in the app; png is
-  the default): applies to the sheets and both previews (`image_ext()`, `set_image_format()`,
+- **Image format** (`IMAGE_FORMAT` / `--format webp|png|jpg`, "save as" in the app; **webp is
+  the default** - user's choice, lossless and ~40% smaller than png): applies to the sheets and both previews (`image_ext()`, `set_image_format()`,
   `save_as()`; vendor pictures already in the right type are copied as is). WebP is saved
   with quality 100 = lossless (verified pixel-identical to the PNG), JPG at `JPG_QUALITY` 92.
   With png the render settings are untouched. The GUI accepts a sheet in any of the formats
@@ -41,6 +41,13 @@ Two versions:
   Cycles keeps its dithering (its gradients are where banding could show).
 - **Auto resolution with Cycles:** the override of the resolution must come after
   `resolution_y = RES_Y`, otherwise the height falls back to 4000 (was a bug, fixed).
+- **Settings in the app:** factory defaults live in `DEFAULTS` (stl_tools.py) and are the
+  only ones marked "(default)" in the UI (combobox labels via `Choice`, checkbox / radio
+  texts). Options are kept for the next start only via "Save as my settings"
+  (`cfg["settings"]`); "Restore defaults" applies `DEFAULTS` without saving. Unsaved changes
+  are not kept. Paths (folder, Blender) are still remembered automatically. Old top-level
+  option keys from earlier versions are ignored and removed. When adding an option: add it
+  to `DEFAULTS`, `_current_settings()`, `_apply_settings()` and the trace list.
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

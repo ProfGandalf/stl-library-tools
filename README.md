@@ -3,9 +3,10 @@
 Tools for a 3D model library (miniatures, STL files). A desktop app that:
 
 - **renders preview sheets** with Blender: every subfolder of models produces two
-  PNG images (`name_A.png` and `name_B.png`) showing the same parts from both sides;
-- **quick preview** mode: `name_preview_A.png` (a fast render of the same layout) and
-  `name_preview_B.png` (the vendor's picture from the folder), to recognise sets at a glance;
+  images (`name_A` and `name_B`, WebP by default, PNG or JPG on request) showing the same
+  parts from both sides;
+- **quick preview** mode: `name_preview_A` (a fast render of the same layout) and
+  `name_preview_B` (the vendor's picture from the folder), to recognise sets at a glance;
 - **packs subfolders into ZIP archives**: a folder is zipped in the background while
   Blender is already rendering the next one.
 

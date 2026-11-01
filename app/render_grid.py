@@ -96,7 +96,7 @@ def _parse_args():
          --samples N        render quality
          --one-side         only sheet A (without the flipped B)
          --engine NAME      full sheets engine: cycles (default) or workbench
-         --format FMT       png (default), jpg or webp - type of all saved images
+         --format FMT       webp (default), png or jpg - type of all saved images
          --preview          quick preview instead of the full sheets:
                             name_preview_A.png (fast Workbench render of the
                             same layout) + name_preview_B.png (largest image
@@ -204,11 +204,10 @@ PREVIEW       = False       # True: quick preview mode (see --preview) - Workben
 PREVIEW_RES   = 1500        # preview resolution (px, square)
 IMAGE_EXTS    = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff')
 
-IMAGE_FORMAT  = "png"       # file type of everything saved (sheets and previews):
-                            #   "png"  - lossless (default)
+IMAGE_FORMAT  = "webp"      # file type of everything saved (sheets and previews):
+                            #   "webp" - lossless WebP, ~1/3 smaller than PNG (default)
+                            #   "png"  - lossless
                             #   "jpg"  - smallest, quality JPG_QUALITY, softens fine edges
-                            #   "webp" - lossless WebP, ~1/3 smaller than PNG, but not
-                            #            every Windows viewer opens it smoothly
 JPG_QUALITY   = 92
 FORMATS = {"png": ('PNG', '.png'), "jpg": ('JPEG', '.jpg'), "webp": ('WEBP', '.webp')}
 
