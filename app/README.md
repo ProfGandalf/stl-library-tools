@@ -47,6 +47,10 @@ The app can live anywhere. It does not need to be copied into the models folder.
 
    Inside a set folder (e.g. `Dreadnought/Arms`) every subfolder is part of that set,
    whatever its name.
+
+   **Export list…** saves the ticked folders to a `.txt` file (one per line, in list order;
+   sets inside `_` groups with their path, e.g. `_Vehicles/Rhino`). It only writes the
+   file, nothing is rendered or zipped.
 4. Choose what to do: render, ZIP or both. The render has two modes:
    - **full sheets**: `name_A.png` + `name_B.png` (resolution and A/B apply here), with
      an **engine** choice:
