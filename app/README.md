@@ -47,6 +47,23 @@ The app can live anywhere. It does not need to be copied into the models folder.
 
    Inside a set folder (e.g. `Dreadnought/Arms`) every subfolder is part of that set,
    whatever its name.
+
+   **Export list…** saves the ticked folders to a `.txt` file, one per line. Sets inside a
+   `_` group are listed under a header line with the group's name, a blank line between
+   groups; sets outside any group come as a block without a header:
+
+   ```
+   _Vehicles:
+   Predator
+   Rhino
+
+   _Vehicles/_Forgeworld:
+   Spartan
+
+   Dreadnought
+   ```
+
+   It only writes the file, nothing is rendered or zipped.
 4. Choose what to do: render, ZIP or both. The render has two modes:
    - **full sheets**: `name_A.png` + `name_B.png` (resolution and A/B apply here), with
      an **engine** choice:

@@ -1171,16 +1171,25 @@ def run_all():
         # explicit list from the app: paths relative to FOLDER with "/", e.g.
         # "Dreadnought" or "_Vehicles/Predator" (sets inside _ group folders).
         # They were picked by hand, so the _ rule does not apply here.
+        # every set that is skipped is reported (@@ SKIP <reason> <rel>), so the
+        # app can say why instead of a silent "not rendered"
         for rel in ONLY:
             d = os.path.join(FOLDER, *rel.split('/'))
             if not os.path.isdir(d):
                 print(f"!!! Folder does not exist: {d}")
+                progress("SKIP", "missing", rel)
                 continue
             try:
-                if collect_models(d, RECURSIVE):
-                    subs.append((rel, d))
-            except Exception:
+                models = collect_models(d, RECURSIVE)
+            except Exception as e:
+                print(f"!!! ERROR reading folder {d}: {e}")
+                progress("SKIP", "error", rel)
                 continue
+            if not models:
+                print(f"!!! No model files found in: {d}")
+                progress("SKIP", "nomodels", rel)
+                continue
+            subs.append((rel, d))
     else:
         for name in sorted(os.listdir(FOLDER)):
             d = os.path.join(FOLDER, name)

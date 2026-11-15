@@ -686,6 +686,7 @@ class App(tk.Tk):
         ttk.Button(bar, text="None", command=lambda: self.select("none")).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Without sheet", command=lambda: self.select("nopng")).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Without ZIP", command=lambda: self.select("nozip")).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="Export list…", command=self.export_list).pack(side="left", padx=(18, 0))
         self.lbl_count = ttk.Label(bar, text="", style="Dim.TLabel")
         self.lbl_count.pack(side="right")
 
@@ -948,6 +949,47 @@ class App(tk.Tk):
         self._draw_checks()
         self._update_count()
         return "break"
+
+    def export_list(self):
+        """Writes the ticked folders to a .txt file, one per line, in list order.
+        Sets inside _ groups are listed under a "_Vehicles:" header line (a
+        sub-group gets its full path, "_Vehicles/_Forgeworld:"), blocks are
+        separated by a blank line. Only writes the file - nothing is rendered
+        or zipped."""
+        names = [n for n in self.rows if n in self.checked]
+        if not names:
+            messagebox.showinfo("Export list", "Tick at least one folder.")
+            return
+        folder = self.var_folder.get().strip()
+        path = filedialog.asksaveasfilename(
+            title="Save the list of ticked folders",
+            initialdir=folder if os.path.isdir(folder) else os.path.expanduser("~"),
+            initialfile="selected_folders.txt", defaultextension=".txt",
+            filetypes=[("Text file", "*.txt"), ("All files", "*.*")])
+        if not path:
+            return
+        # one block per group: "_Vehicles:" then its sets by name; sets outside any
+        # group come as a block without a header; blank line between blocks
+        # (each group once, in the order it first appears in the list)
+        blocks = {}                         # group path or "" -> [set names]
+        for rel in names:
+            group, _, name = rel.rpartition("/")
+            blocks.setdefault(group, []).append(name)
+        lines = []
+        for group, sets in blocks.items():
+            if lines:
+                lines.append("")
+            if group:
+                lines.append(group + ":")
+            lines.extend(sets)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+        except OSError as e:
+            messagebox.showerror("Export list", "Could not save the list:\n%s" % e)
+            return
+        self.log_line("[list] %d folders saved to %s" % (len(names), path), "ok")
+        messagebox.showinfo("Export list", "Saved %d folders to:\n%s" % (len(names), path))
 
     def select(self, mode):
         if self.worker:
@@ -1343,6 +1385,16 @@ class App(tk.Tk):
                 elif kind == "RENDER":
                     rend += 1
                     samp = 0.0
+                elif kind == "SKIP":
+                    # the script did not even start this set - say why
+                    name = parts[2] if len(parts) > 2 else "?"
+                    why = {"missing": "folder not found", "nomodels": "no model files",
+                           "error": "could not read folder"}.get(parts[1], parts[1])
+                    finished.add(name)
+                    res[1] += 1
+                    self.emit("status", name, "st_render", "✖ " + why)
+                    on_done(name)       # still zipped, like a set that failed to render
+                    continue
                 elif kind == "IMAGE":
                     picture[parts[2] if len(parts) > 2 else cur] = parts[1]
                 elif kind == "DONE":

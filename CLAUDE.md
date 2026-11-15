@@ -48,6 +48,15 @@ Two versions:
   are not kept. Paths (folder, Blender) are still remembered automatically. Old top-level
   option keys from earlier versions are ignored and removed. When adding an option: add it
   to `DEFAULTS`, `_current_settings()`, `_apply_settings()` and the trace list.
+- **Skipped sets are always explained:** with `--only`, a set the script does not start
+  prints a reason and `@@ SKIP missing|nomodels|error <rel>`; the app shows "✖ folder not
+  found" / "✖ no model files" / "✖ could not read folder" and still zips the set. Only a set
+  with no line at all is "✖ not rendered".
+- **Export list…** (button next to "Without ZIP"): writes the ticked sets to a chosen `.txt`
+  (default `selected_folders.txt` in the models folder), grouped as the user asked: a
+  "_Vehicles:" header (sub-groups with their full path, "_Vehicles/_Forgeworld:"), then the
+  set names one per line, a blank line between blocks; each group once, in list order;
+  sets outside groups as a block without a header.
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never
