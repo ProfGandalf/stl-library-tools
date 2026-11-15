@@ -952,8 +952,10 @@ class App(tk.Tk):
 
     def export_list(self):
         """Writes the ticked folders to a .txt file, one per line, in list order.
-        Sets inside _ groups are written with their path (e.g. _Vehicles/Rhino).
-        Only writes the file - nothing is rendered or zipped."""
+        Sets inside _ groups are listed under a "_Vehicles:" header line (a
+        sub-group gets its full path, "_Vehicles/_Forgeworld:"), blocks are
+        separated by a blank line. Only writes the file - nothing is rendered
+        or zipped."""
         names = [n for n in self.rows if n in self.checked]
         if not names:
             messagebox.showinfo("Export list", "Tick at least one folder.")
@@ -966,9 +968,23 @@ class App(tk.Tk):
             filetypes=[("Text file", "*.txt"), ("All files", "*.*")])
         if not path:
             return
+        # one block per group: "_Vehicles:" then its sets by name; sets outside any
+        # group come as a block without a header; blank line between blocks
+        # (each group once, in the order it first appears in the list)
+        blocks = {}                         # group path or "" -> [set names]
+        for rel in names:
+            group, _, name = rel.rpartition("/")
+            blocks.setdefault(group, []).append(name)
+        lines = []
+        for group, sets in blocks.items():
+            if lines:
+                lines.append("")
+            if group:
+                lines.append(group + ":")
+            lines.extend(sets)
         try:
             with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(names) + "\n")
+                f.write("\n".join(lines) + "\n")
         except OSError as e:
             messagebox.showerror("Export list", "Could not save the list:\n%s" % e)
             return
