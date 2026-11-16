@@ -486,6 +486,8 @@ class FancyBar(tk.Canvas):
 
 # full sheets engine: label in the app -> value for render_grid.py --engine
 # the first one is the default - Workbench, the user found it more readable
+# order in which the ticked sets are rendered and zipped
+ORDER_NAMES = {"name": "alphabetical", "smallest": "smallest first", "largest": "largest first"}
 ENGINE_NAMES = {"workbench": "Workbench (fast)", "cycles": "Cycles (realistic)"}
 
 # factory defaults of every option; "(default)" in the UI always marks these,
@@ -501,6 +503,7 @@ DEFAULTS = {
     "overwrite_png": True,
     "do_zip": True,
     "overwrite_zip": True,
+    "order": "name",
 }
 CHOICES = {
     "engine": ("workbench", "cycles"),
@@ -508,6 +511,7 @@ CHOICES = {
     "samples": ("16", "32", "64", "128", "256", "512"),
     "image_format": IMAGE_FORMATS,
     "render_mode": ("full", "preview"),
+    "order": ("name", "smallest", "largest"),
 }
 DEFAULT_TAG = " (default)"
 
@@ -602,6 +606,7 @@ class App(tk.Tk):
         self.opt_engine = Choice("engine", None, ENGINE_NAMES)
         self.opt_res = Choice("res", None)
         self.opt_samples = Choice("samples", None)
+        self.opt_order = Choice("order", None, ORDER_NAMES)
         self._apply_settings(self._saved_settings() or DEFAULTS)
 
         self._style()
@@ -798,10 +803,13 @@ class App(tk.Tk):
         ttk.Label(r1b, text="save as:").pack(side="left", padx=(24, 0))
         ttk.Combobox(r1b, textvariable=self.opt_format.var, width=14, state="readonly",
                      values=self.opt_format.labels()).pack(side="left", padx=(4, 0))
-        ttk.Label(r1b, text="webp / png = lossless (webp smaller), jpg = smallest",
-                  style="Dim.TLabel").pack(side="left", padx=(8, 0))
+        ttk.Label(r1b, text="(webp/png lossless, jpg smallest)",
+                  style="Dim.TLabel").pack(side="left", padx=(6, 0))
         ttk.Checkbutton(r1b, text="overwrite existing images (default)",
-                        variable=self.var_overwrite_png).pack(side="left", padx=(14, 0))
+                        variable=self.var_overwrite_png).pack(side="left", padx=(12, 0))
+        ttk.Label(r1b, text="order:").pack(side="left", padx=(14, 0))
+        ttk.Combobox(r1b, textvariable=self.opt_order.var, width=24, state="readonly",
+                     values=self.opt_order.labels()).pack(side="left", padx=(4, 0))
         r2 = ttk.Frame(p)
         r2.pack(fill="x", pady=(6, 0))
         ttk.Checkbutton(r2, text="Pack into ZIP (default)", variable=self.var_zip).pack(side="left")
@@ -815,7 +823,8 @@ class App(tk.Tk):
         self.lbl_settings.pack(side="right", padx=(0, 10))
         for v in (self.var_render, self.var_mode, self.var_both, self.var_overwrite_png,
                   self.var_zip, self.var_overwrite_zip, self.opt_engine.var,
-                  self.opt_res.var, self.opt_samples.var, self.opt_format.var):
+                  self.opt_res.var, self.opt_samples.var, self.opt_format.var,
+                  self.opt_order.var):
             v.trace_add("write", self._settings_state)
 
         # --- progress
@@ -1133,6 +1142,7 @@ class App(tk.Tk):
             "overwrite_png": self.var_overwrite_png.get(),
             "do_zip": self.var_zip.get(),
             "overwrite_zip": self.var_overwrite_zip.get(),
+            "order": self.opt_order.get(),
         }
 
     def _saved_settings(self):
@@ -1156,6 +1166,7 @@ class App(tk.Tk):
         self.var_overwrite_png.set(st["overwrite_png"])
         self.var_zip.set(st["do_zip"])
         self.var_overwrite_zip.set(st["overwrite_zip"])
+        self.opt_order.set(st["order"])
         if hasattr(self, "cb_engine"):
             self._mode_changed()
 
@@ -1195,6 +1206,12 @@ class App(tk.Tk):
             messagebox.showinfo("Nothing to do", "Tick render, ZIP or both.")
             return
         names = [n for n in self.rows if n in self.checked]  # same order as the list
+        # processing order (render and ZIP follow it); the sort is stable, so sets
+        # of equal size stay alphabetical
+        if self.opt_order.get() == "smallest":
+            names.sort(key=lambda n: self.rows[n]["size"])
+        elif self.opt_order.get() == "largest":
+            names.sort(key=lambda n: -self.rows[n]["size"])
         if not names:
             messagebox.showinfo("Nothing to do", "Tick at least one folder.")
             return

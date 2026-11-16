@@ -67,6 +67,9 @@ Two versions:
 - **Size (MB) column** (between Models and Sheet): `scan_tree()` sums the size of all files
   in a set folder (`"size"`), `fmt_mb()` formats it ("5 300", "<1"); group rows show the sum.
   The user's crashing set was 5.3 GB of STL (~100 M triangles) - memory, not a bug.
+- **Order** (`DEFAULTS["order"]`: "name" / "smallest" / "largest", combobox on the "save as"
+  row): `start()` sorts the ticked rel paths by `rows[n]["size"]` (stable, so ties stay in
+  list order); render and ZIP follow the same order. Saved with the other settings.
 - **Row colours** (user's choice): `ok` green = done, `busy` orange (`C_BUSY`) = being worked
   on, `queued` yellow (`C_QUEUED`) = waiting (also: rendered, ZIP still queued), `err` red,
   from both status columns in `set_status()` (priority err > busy > queued > ok).
