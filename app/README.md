@@ -112,6 +112,10 @@ The app can live anywhere. It does not need to be copied into the models folder.
 
 Full Blender output is in the **Log** tab.
 
+**Size (MB)** shows the total size of all files in a set folder (roughly what goes into its
+ZIP); a group row shows the sum of its sets. Very large sets (several GB of STL) need a lot
+of memory in Blender - a 5.3 GB set is about 100 million triangles.
+
 **Row colours:** green = done, orange = being worked on, yellow = waiting in the queue,
 red = error. A `_` group row takes the colour of its sets (red if any of them had an error,
 orange while one is worked on, yellow while some still wait, green when all are done), so a

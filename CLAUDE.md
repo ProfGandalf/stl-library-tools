@@ -64,6 +64,9 @@ Two versions:
   start) -> give up, rest "✖ not rendered". Stop / cancel never triggers a retry.
   `describe_exit()` turns exit codes into hints (Windows 0xC0000005 etc., Linux signals).
   Seen in a real run: Blender died on a 106-model set and all later sets were lost.
+- **Size (MB) column** (between Models and Sheet): `scan_tree()` sums the size of all files
+  in a set folder (`"size"`), `fmt_mb()` formats it ("5 300", "<1"); group rows show the sum.
+  The user's crashing set was 5.3 GB of STL (~100 M triangles) - memory, not a bug.
 - **Row colours** (user's choice): `ok` green = done, `busy` orange (`C_BUSY`) = being worked
   on, `queued` yellow (`C_QUEUED`) = waiting (also: rendered, ZIP still queued), `err` red,
   from both status columns in `set_status()` (priority err > busy > queued > ok).

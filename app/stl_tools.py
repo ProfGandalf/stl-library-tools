@@ -385,9 +385,13 @@ def scan_tree(root):
                 nodes.append({"kind": "group", "rel": rel, "name": name,
                               "children": walk(rel)})
                 continue
-            models = mf3 = 0
+            models = mf3 = size = 0
             for _root, _dirs, files in os.walk(d):
                 for f in files:
+                    try:
+                        size += os.path.getsize(os.path.join(_root, f))
+                    except OSError:
+                        pass
                     fl = f.lower()
                     if fl.endswith(MODEL_EXTS):
                         models += 1
@@ -396,7 +400,7 @@ def scan_tree(root):
             png = any(os.path.isfile(os.path.join(base, name + suf + ext))
                       for suf in ("_A", "") for ext in SHEET_EXTS)
             nodes.append({"kind": "set", "rel": rel, "name": name,
-                          "models": models, "mf3": mf3, "png": png,
+                          "models": models, "mf3": mf3, "png": png, "size": size,
                           "prev": any(os.path.isfile(os.path.join(base, name + "_preview_A" + ext))
                                       for ext in SHEET_EXTS),
                           "zip": os.path.isfile(os.path.join(base, name + ".zip"))})
@@ -538,6 +542,14 @@ class Choice:
 SAMPLE_RE = re.compile(r"Sample (\d+)/(\d+)")
 # Cycles renders large images in tiles: "Rendered 1/4 Tiles, Sample 64/128"
 TILES_RE = re.compile(r"(\d+)/(\d+) Tiles")
+
+
+def fmt_mb(nbytes):
+    """Folder size for the list, in MB with a thousands separator: '5 427'."""
+    mb = nbytes / (1024.0 * 1024.0)
+    if 0 < mb < 1:
+        return "<1"
+    return "{:,.0f}".format(mb).replace(",", " ")
 
 
 def fmt_time(sec):
@@ -720,13 +732,14 @@ class App(tk.Tk):
 
         tf = ttk.Frame(p)
         tf.pack(fill="both", expand=True)
-        cols = ("models", "png", "prev", "zip", "st_render", "st_zip")
+        cols = ("models", "size", "png", "prev", "zip", "st_render", "st_zip")
         self.tree = ttk.Treeview(tf, columns=cols, show="tree headings", selectmode="none", height=6)
         # tree column: expand arrow + tick + folder name
         self.tree.heading("#0", text="Folder", anchor="w")
         self.tree.column("#0", width=300, anchor="w", stretch=True)
         for c, txt, w, anchor, stretch in (
                 ("models", "Models", 80, "center", False),
+                ("size", "Size (MB)", 80, "e", False),
                 ("png", "Sheet", 50, "center", False),
                 ("prev", "Preview", 64, "center", False),
                 ("zip", "ZIP", 50, "center", False),
@@ -919,6 +932,7 @@ class App(tk.Tk):
                     inner = add(rel, it["children"], True)
                     self.groups[rel] = inner
                     self.tree.item(rel, values=("%d set%s" % (len(inner), "" if len(inner) == 1 else "s"),
+                                                     fmt_mb(sum(self.rows[r]["size"] for r in inner)),
                                                      "", "", "", "", ""))
                     sets += inner
                     continue
@@ -936,7 +950,7 @@ class App(tk.Tk):
                     self.checked.add(rel)
                 models = str(it["models"]) + (" +%d 3MF" % it["mf3"] if it["mf3"] else "")
                 self.tree.insert(parent_iid, "end", iid=rel, values=(
-                    models, "✔" if it["png"] else "—", "✔" if it["prev"] else "—",
+                    models, fmt_mb(it["size"]), "✔" if it["png"] else "—", "✔" if it["prev"] else "—",
                     "✔" if it["zip"] else "—", status, ""))
                 sets.append(rel)
             return sets
