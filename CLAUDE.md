@@ -57,6 +57,13 @@ Two versions:
   "_Vehicles:" header (sub-groups with their full path, "_Vehicles/_Forgeworld:"), then the
   set names one per line, a blank line between blocks; each group once, in list order;
   sets outside groups as a block without a header.
+- **Auto-retry when Blender dies:** `_run_render` loops: `_read_blender` reads one Blender run
+  and returns (finished sets, set it died on, exit code); a fresh Blender is started with
+  `--only` for the set it died on + the rest. Second crash on the same set -> "✖ crashed
+  Blender twice", skipped, still zipped. Two runs in a row without any progress (dies at
+  start) -> give up, rest "✖ not rendered". Stop / cancel never triggers a retry.
+  `describe_exit()` turns exit codes into hints (Windows 0xC0000005 etc., Linux signals).
+  Seen in a real run: Blender died on a 106-model set and all later sets were lost.
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

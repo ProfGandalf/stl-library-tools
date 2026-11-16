@@ -278,6 +278,32 @@ class ChildGuard:
             pass
 
 
+def describe_exit(code):
+    """Human-readable Blender exit code, for the log."""
+    if code is None:
+        return "no exit code"
+    known = {0xC0000005: "access violation - often out of memory or a GPU driver problem",
+             0xC0000409: "Blender crashed (stack buffer overrun)",
+             0xC00000FD: "stack overflow",
+             0xC0000017: "out of memory",
+             0xC000001D: "illegal instruction",
+             0xE06D7363: "unhandled exception in Blender"}
+    if IS_WIN and code != 0:
+        u = code & 0xFFFFFFFF
+        return "code %d = 0x%08X%s" % (code, u, " (%s)" % known[u] if u in known else "")
+    if code < 0:
+        import signal
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = "signal %d" % -code
+        hint = {"SIGKILL": " - killed, often by the system when memory runs out",
+                "SIGSEGV": " - Blender crashed (segmentation fault)",
+                "SIGABRT": " - Blender aborted"}.get(name, "")
+        return "code %d (%s%s)" % (code, name, hint)
+    return "code %d" % code
+
+
 # ======================= Linux menu integration =========================
 
 def install_desktop_entry():
@@ -1302,42 +1328,87 @@ class App(tk.Tk):
                   bool(job["render"]), bool(job["zip"]))
 
     def _run_render(self, job, res, on_done):
-        names = job["render"]
-        cmd = [job["blender"], "--background", "--python", RENDER_SCRIPT, "--",
-               "--folder", job["folder"]]
-        cmd += ["--format", job["format"]]
+        """Runs Blender on the sets; if Blender dies, starts a fresh one for the
+        set it died on and the rest. A set that crashes Blender twice is marked
+        and skipped, so one bad set cannot stop the whole run."""
+        names = list(job["render"])
+        base = [job["blender"], "--background", "--python", RENDER_SCRIPT, "--",
+                "--folder", job["folder"]]
+        base += ["--format", job["format"]]
         if job["mode"] == "preview":
-            cmd.append("--preview")
+            base.append("--preview")
         else:
-            cmd += ["--res", job["res"], "--samples", job["samples"], "--engine", job["engine"]]
+            base += ["--res", job["res"], "--samples", job["samples"], "--engine", job["engine"]]
             if not job["both"]:
-                cmd.append("--one-side")
-        for n in names:
-            cmd += ["--only", n]
-        self.emit("log", "> " + " ".join('"%s"' % c if " " in c else c for c in cmd), "head")
+                base.append("--one-side")
 
         flags = 0x08000000 if IS_WIN else 0     # CREATE_NO_WINDOW - no black console window
         env = dict(os.environ, PYTHONUNBUFFERED="1")
-        self.running.wait()     # pressed Pause before Blender even started
-        if self.cancel.is_set():
-            return
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     cwd=job["folder"], creationflags=flags, env=env,
-                                     **self.guard.popen_kwargs())
-        self.guard.adopt(self.proc)
-        if not self.running.is_set():
-            suspend_process(self.proc, True)    # Pause pressed while it was starting
-        try:
-            self._read_blender(job, res, on_done, names)
-        finally:
-            # whatever happened (also an exception while reading its output),
-            # Blender must not outlive this run
-            end_process(self.proc)
-            self.proc = None
-
-    def _read_blender(self, job, res, on_done, names):
-        total = len(names)
         t_start = time.time() - 2
+        done = set()            # sets finished (ok, error or skipped) in any Blender run
+        crashes = {}            # set -> how many times Blender died on it
+        idle_runs = 0           # Blender runs that ended without any progress
+        remaining = names
+        while remaining and not self.cancel.is_set():
+            cmd = list(base)
+            for n in remaining:
+                cmd += ["--only", n]
+            self.emit("log", "> " + " ".join('"%s"' % c if " " in c else c for c in cmd), "head")
+            self.running.wait()     # pressed Pause before Blender even started
+            if self.cancel.is_set():
+                return
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         cwd=job["folder"], creationflags=flags, env=env,
+                                         **self.guard.popen_kwargs())
+            self.guard.adopt(self.proc)
+            if not self.running.is_set():
+                suspend_process(self.proc, True)    # Pause pressed while it was starting
+            try:
+                finished, died_on, code = self._read_blender(
+                    job, res, on_done, remaining, t_start, len(done), len(names))
+            finally:
+                # whatever happened (also an exception while reading its output),
+                # Blender must not outlive this run
+                end_process(self.proc)
+                self.proc = None
+            if self.cancel.is_set():
+                return
+            done |= finished
+            remaining = [n for n in remaining if n not in done]
+            if not remaining:
+                break
+            # Blender ended before all sets were done: it crashed or was killed
+            self.emit("log", "!!! Blender stopped before finishing all sets", "err")
+            if died_on:
+                crashes[died_on] = crashes.get(died_on, 0) + 1
+                if crashes[died_on] >= 2:
+                    res[1] += 1
+                    done.add(died_on)
+                    remaining.remove(died_on)
+                    self.emit("status", died_on, "st_render", "✖ crashed Blender twice")
+                    self.emit("log", "!!! %s crashed Blender twice - skipped" % died_on, "err")
+                    on_done(died_on)            # still zipped
+                else:
+                    self.emit("status", died_on, "st_render", "↻ retrying… (Blender crashed)")
+            idle_runs = idle_runs + 1 if not finished and not died_on else 0
+            if idle_runs >= 2:
+                # Blender dies before it even starts a set - retrying will not help
+                self.emit("log", "!!! Blender keeps stopping before it starts - giving up", "err")
+                break
+            if remaining:
+                self.emit("log", "↻ starting a fresh Blender for the %d remaining set(s)"
+                          % len(remaining), "head")
+        if not self.cancel.is_set():
+            for n in remaining:
+                if n not in done:
+                    res[1] += 1
+                    self.emit("status", n, "st_render", "✖ not rendered")
+        self.emit("prog", "r", None, 1.0, "Blender: finished", "")
+
+    def _read_blender(self, job, res, on_done, names, t_start, offset, grand_total):
+        """Reads one Blender run. Returns (sets finished in this run, the set it
+        was working on when it ended early or None, exit code)."""
+        total = len(names)
         sides = 2 if job["both"] and job["mode"] == "full" else 1
         preview = job["mode"] == "preview"
         picture = {}            # preview mode: set -> "ok" / "none" / "fail" for preview B
@@ -1358,7 +1429,8 @@ class App(tk.Tk):
                 frac = 0.2 + 0.8 * (rend + samp) / sides
                 side = ("side A" if rend == 0 else "side B") if sides == 2 else "render"
                 txt = "%s — %d%%" % (side, samp * 100)
-            self.emit("prog", "r", cur, frac, "Blender [%d/%d]: %s" % (idx, total, cur), txt)
+            self.emit("prog", "r", cur, frac,
+                      "Blender [%d/%d]: %s" % (offset + idx, grand_total, cur), txt)
 
         for raw in self.proc.stdout:
             line = raw.decode("utf-8", errors="replace").rstrip()
@@ -1379,7 +1451,7 @@ class App(tk.Tk):
                     cur = parts[2] if len(parts) > 2 else "?"
                     imp, rend, samp = 0.0, -1, 0.0
                     self.emit("status", cur, "st_render", "rendering…")
-                    self.emit("log", "── Blender [%d/%d] %s" % (idx, total, cur), "head")
+                    self.emit("log", "── Blender [%d/%d] %s" % (offset + idx, grand_total, cur), "head")
                 elif kind == "IMPORT":
                     imp = int(parts[1]) / max(1, int(parts[2]))
                 elif kind == "RENDER":
@@ -1434,20 +1506,9 @@ class App(tk.Tk):
                 tag = "err" if ("ERROR" in line or "Error" in line or "!!!" in line) else None
                 self.emit("log", line, tag)
         code = self.proc.wait()
-        if cur and not self.cancel.is_set():
-            # Blender died in the middle of a folder
-            res[1] += 1
-            finished.add(cur)
-            self.emit("status", cur, "st_render", "✖ Blender aborted")
-        if not self.cancel.is_set():
-            # sets Blender never got to (folder gone, crash before it, ...)
-            for n in names:
-                if n not in finished:
-                    res[1] += 1
-                    self.emit("status", n, "st_render", "✖ not rendered")
         if code != 0 and not self.cancel.is_set():
-            self.emit("log", "!!! Blender exited with code %s" % code, "err")
-        self.emit("prog", "r", None, 1.0, "Blender: finished", "")
+            self.emit("log", "!!! Blender exited: %s" % describe_exit(code), "err")
+        return finished, cur, code
 
     @staticmethod
     def _has_png(root, rel, both, mode="full"):
@@ -1656,10 +1717,10 @@ class App(tk.Tk):
         self.btn_stop.configure(state="disabled")
         for b in self.bars:
             b.running = False
-        busy = ("queued", "rendering…", "zipping…")
         for n in self.rows:
             for col in ("st_render", "st_zip"):
-                if self.tree.set(n, col) in busy:
+                text = self.tree.set(n, col)
+                if text == "queued" or "…" in text:
                     self.set_status(n, col, "stopped")
         parts = []
         r, z = results["render"], results["zip"]

@@ -112,6 +112,12 @@ The app can live anywhere. It does not need to be copied into the models folder.
 
 Full Blender output is in the **Log** tab.
 
+**If Blender crashes** (e.g. runs out of memory on a big set), the app starts a fresh
+Blender by itself and continues with the set it crashed on and the rest. A set that crashes
+Blender a second time is marked *✖ crashed Blender twice* and skipped (it is still zipped),
+so one bad set cannot stop the whole run. The Log shows the exit code with a hint, e.g.
+`0xC0000005 (access violation - often out of memory or a GPU driver problem)`.
+
 **Settings.** Every factory default is marked *(default)* in the window. To keep your own
 choice of options for the next start, press **Save as my settings**; **Restore defaults**
 switches back to the factory defaults (press *Save* afterwards to make that permanent too).
