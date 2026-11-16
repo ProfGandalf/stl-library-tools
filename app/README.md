@@ -112,6 +112,10 @@ The app can live anywhere. It does not need to be copied into the models folder.
 
 Full Blender output is in the **Log** tab.
 
+**Row colours:** green = done, yellow = being worked on, red = error. A `_` group row takes
+the colour of its sets (red if any of them had an error, yellow while it is in progress,
+green when all are done), so a problem is visible even with the group collapsed.
+
 **If Blender crashes** (e.g. runs out of memory on a big set), the app starts a fresh
 Blender by itself and continues with the set it crashed on and the rest. A set that crashes
 Blender a second time is marked *✖ crashed Blender twice* and skipped (it is still zipped),

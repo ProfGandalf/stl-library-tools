@@ -57,6 +57,7 @@ C_TEXT = "#e6e3dc"
 C_DIM = "#8b8f98"
 C_BONE = "#b8b3a8"
 C_ACCENT = "#e0a14a"
+C_BUSY = "#f2d24b"       # rows being worked on (yellow; done = C_OK, error = C_ERR)
 C_OK = "#6fbf73"
 C_ERR = "#e06c5a"
 
@@ -735,8 +736,12 @@ class App(tk.Tk):
         self.tree.tag_configure("off", foreground=C_DIM)
         self.tree.tag_configure("ok", foreground=C_OK)
         self.tree.tag_configure("err", foreground=C_ERR)
-        self.tree.tag_configure("busy", foreground=C_ACCENT)
+        self.tree.tag_configure("busy", foreground=C_BUSY)
         self.tree.tag_configure("group", foreground=C_BONE, font=ui_font(10, True))
+        # group rows take the colour of their sets (one tag each - with two tags
+        # on a row Tk would pick the colour by tag order, not by intent)
+        for t, col in (("group_ok", C_OK), ("group_busy", C_BUSY), ("group_err", C_ERR)):
+            self.tree.tag_configure(t, foreground=col, font=ui_font(10, True))
         sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -1050,6 +1055,31 @@ class App(tk.Tk):
         else:
             tag = None
         self.tree.item(name, tags=(tag,) if tag else ())
+        self._colour_groups(name)
+
+    def _colour_groups(self, rel):
+        """Colours the group rows above a set: red if any of their sets had an
+        error, yellow while any is being worked on (or some are done and others
+        still queued), green when all that were worked on are done; plain when
+        none of their sets has a status yet."""
+        parts = rel.split("/")
+        for i in range(len(parts) - 1, 0, -1):
+            group = "/".join(parts[:i])
+            if group not in self.groups or not self.tree.exists(group):
+                continue
+            sets = [r for r in self.groups[group] if self.tree.exists(r)]
+            tags = {t for r in sets for t in self.tree.item(r, "tags")}
+            waiting = any(self.tree.set(r, c) == "queued"
+                          for r in sets for c in ("st_render", "st_zip"))
+            if "err" in tags:
+                tag = "group_err"
+            elif "busy" in tags or (waiting and "ok" in tags):
+                tag = "group_busy"
+            elif "ok" in tags:
+                tag = "group_ok"
+            else:
+                tag = "group"
+            self.tree.item(group, tags=(tag,))
 
     def log_line(self, text, tag=None):
         self.log.configure(state="normal")
