@@ -64,10 +64,11 @@ Two versions:
   start) -> give up, rest "✖ not rendered". Stop / cancel never triggers a retry.
   `describe_exit()` turns exit codes into hints (Windows 0xC0000005 etc., Linux signals).
   Seen in a real run: Blender died on a 106-model set and all later sets were lost.
-- **Row colours:** tags `ok` (green), `busy` (yellow `C_BUSY`, not the amber `C_ACCENT`),
-  `err` (red) from both status columns in `set_status()`. `_colour_groups()` colours the
-  `_` group rows above a set with one tag each (`group_ok/busy/err`): red if any set has an
-  error, yellow while busy or partly queued, green when done.
+- **Row colours** (user's choice): `ok` green = done, `busy` orange (`C_BUSY`) = being worked
+  on, `queued` yellow (`C_QUEUED`) = waiting (also: rendered, ZIP still queued), `err` red,
+  from both status columns in `set_status()` (priority err > busy > queued > ok).
+  `_colour_groups()` colours the `_` group rows above a set with one tag each
+  (`group_ok/busy/queued/err`, same priority).
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never

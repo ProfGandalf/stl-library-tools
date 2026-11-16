@@ -57,7 +57,8 @@ C_TEXT = "#e6e3dc"
 C_DIM = "#8b8f98"
 C_BONE = "#b8b3a8"
 C_ACCENT = "#e0a14a"
-C_BUSY = "#f2d24b"       # rows being worked on (yellow; done = C_OK, error = C_ERR)
+C_BUSY = "#f0883e"       # rows being worked on (orange)
+C_QUEUED = "#f2d24b"     # rows waiting in the queue (yellow); done = C_OK, error = C_ERR
 C_OK = "#6fbf73"
 C_ERR = "#e06c5a"
 
@@ -737,10 +738,12 @@ class App(tk.Tk):
         self.tree.tag_configure("ok", foreground=C_OK)
         self.tree.tag_configure("err", foreground=C_ERR)
         self.tree.tag_configure("busy", foreground=C_BUSY)
+        self.tree.tag_configure("queued", foreground=C_QUEUED)
         self.tree.tag_configure("group", foreground=C_BONE, font=ui_font(10, True))
         # group rows take the colour of their sets (one tag each - with two tags
         # on a row Tk would pick the colour by tag order, not by intent)
-        for t, col in (("group_ok", C_OK), ("group_busy", C_BUSY), ("group_err", C_ERR)):
+        for t, col in (("group_ok", C_OK), ("group_busy", C_BUSY),
+                       ("group_queued", C_QUEUED), ("group_err", C_ERR)):
             self.tree.tag_configure(t, foreground=col, font=ui_font(10, True))
         sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -1050,6 +1053,8 @@ class App(tk.Tk):
             tag = "busy"
             if col == "st_render":
                 self.tree.see(name)
+        elif "queued" in both:              # also: rendered, ZIP still waiting
+            tag = "queued"
         elif "✔" in both or "already exists" in both:
             tag = "ok"
         else:
@@ -1059,9 +1064,9 @@ class App(tk.Tk):
 
     def _colour_groups(self, rel):
         """Colours the group rows above a set: red if any of their sets had an
-        error, yellow while any is being worked on (or some are done and others
-        still queued), green when all that were worked on are done; plain when
-        none of their sets has a status yet."""
+        error, orange while one is being worked on, yellow while some are still
+        queued, green when all that were worked on are done; plain when none of
+        their sets has a status yet."""
         parts = rel.split("/")
         for i in range(len(parts) - 1, 0, -1):
             group = "/".join(parts[:i])
@@ -1069,12 +1074,12 @@ class App(tk.Tk):
                 continue
             sets = [r for r in self.groups[group] if self.tree.exists(r)]
             tags = {t for r in sets for t in self.tree.item(r, "tags")}
-            waiting = any(self.tree.set(r, c) == "queued"
-                          for r in sets for c in ("st_render", "st_zip"))
             if "err" in tags:
                 tag = "group_err"
-            elif "busy" in tags or (waiting and "ok" in tags):
+            elif "busy" in tags:
                 tag = "group_busy"
+            elif "queued" in tags:
+                tag = "group_queued"
             elif "ok" in tags:
                 tag = "group_ok"
             else:
