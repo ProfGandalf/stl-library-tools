@@ -57,6 +57,8 @@ C_TEXT = "#e6e3dc"
 C_DIM = "#8b8f98"
 C_BONE = "#b8b3a8"
 C_ACCENT = "#e0a14a"
+C_BUSY = "#f0883e"       # rows being worked on (orange)
+C_QUEUED = "#f2d24b"     # rows waiting in the queue (yellow); done = C_OK, error = C_ERR
 C_OK = "#6fbf73"
 C_ERR = "#e06c5a"
 
@@ -278,6 +280,32 @@ class ChildGuard:
             pass
 
 
+def describe_exit(code):
+    """Human-readable Blender exit code, for the log."""
+    if code is None:
+        return "no exit code"
+    known = {0xC0000005: "access violation - often out of memory or a GPU driver problem",
+             0xC0000409: "Blender crashed (stack buffer overrun)",
+             0xC00000FD: "stack overflow",
+             0xC0000017: "out of memory",
+             0xC000001D: "illegal instruction",
+             0xE06D7363: "unhandled exception in Blender"}
+    if IS_WIN and code != 0:
+        u = code & 0xFFFFFFFF
+        return "code %d = 0x%08X%s" % (code, u, " (%s)" % known[u] if u in known else "")
+    if code < 0:
+        import signal
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = "signal %d" % -code
+        hint = {"SIGKILL": " - killed, often by the system when memory runs out",
+                "SIGSEGV": " - Blender crashed (segmentation fault)",
+                "SIGABRT": " - Blender aborted"}.get(name, "")
+        return "code %d (%s%s)" % (code, name, hint)
+    return "code %d" % code
+
+
 # ======================= Linux menu integration =========================
 
 def install_desktop_entry():
@@ -357,9 +385,13 @@ def scan_tree(root):
                 nodes.append({"kind": "group", "rel": rel, "name": name,
                               "children": walk(rel)})
                 continue
-            models = mf3 = 0
+            models = mf3 = size = 0
             for _root, _dirs, files in os.walk(d):
                 for f in files:
+                    try:
+                        size += os.path.getsize(os.path.join(_root, f))
+                    except OSError:
+                        pass
                     fl = f.lower()
                     if fl.endswith(MODEL_EXTS):
                         models += 1
@@ -368,7 +400,7 @@ def scan_tree(root):
             png = any(os.path.isfile(os.path.join(base, name + suf + ext))
                       for suf in ("_A", "") for ext in SHEET_EXTS)
             nodes.append({"kind": "set", "rel": rel, "name": name,
-                          "models": models, "mf3": mf3, "png": png,
+                          "models": models, "mf3": mf3, "png": png, "size": size,
                           "prev": any(os.path.isfile(os.path.join(base, name + "_preview_A" + ext))
                                       for ext in SHEET_EXTS),
                           "zip": os.path.isfile(os.path.join(base, name + ".zip"))})
@@ -510,6 +542,14 @@ class Choice:
 SAMPLE_RE = re.compile(r"Sample (\d+)/(\d+)")
 # Cycles renders large images in tiles: "Rendered 1/4 Tiles, Sample 64/128"
 TILES_RE = re.compile(r"(\d+)/(\d+) Tiles")
+
+
+def fmt_mb(nbytes):
+    """Folder size for the list, in MB with a thousands separator: '5 427'."""
+    mb = nbytes / (1024.0 * 1024.0)
+    if 0 < mb < 1:
+        return "<1"
+    return "{:,.0f}".format(mb).replace(",", " ")
 
 
 def fmt_time(sec):
@@ -692,13 +732,14 @@ class App(tk.Tk):
 
         tf = ttk.Frame(p)
         tf.pack(fill="both", expand=True)
-        cols = ("models", "png", "prev", "zip", "st_render", "st_zip")
+        cols = ("models", "size", "png", "prev", "zip", "st_render", "st_zip")
         self.tree = ttk.Treeview(tf, columns=cols, show="tree headings", selectmode="none", height=6)
         # tree column: expand arrow + tick + folder name
         self.tree.heading("#0", text="Folder", anchor="w")
         self.tree.column("#0", width=300, anchor="w", stretch=True)
         for c, txt, w, anchor, stretch in (
                 ("models", "Models", 80, "center", False),
+                ("size", "Size (MB)", 80, "e", False),
                 ("png", "Sheet", 50, "center", False),
                 ("prev", "Preview", 64, "center", False),
                 ("zip", "ZIP", 50, "center", False),
@@ -709,8 +750,14 @@ class App(tk.Tk):
         self.tree.tag_configure("off", foreground=C_DIM)
         self.tree.tag_configure("ok", foreground=C_OK)
         self.tree.tag_configure("err", foreground=C_ERR)
-        self.tree.tag_configure("busy", foreground=C_ACCENT)
+        self.tree.tag_configure("busy", foreground=C_BUSY)
+        self.tree.tag_configure("queued", foreground=C_QUEUED)
         self.tree.tag_configure("group", foreground=C_BONE, font=ui_font(10, True))
+        # group rows take the colour of their sets (one tag each - with two tags
+        # on a row Tk would pick the colour by tag order, not by intent)
+        for t, col in (("group_ok", C_OK), ("group_busy", C_BUSY),
+                       ("group_queued", C_QUEUED), ("group_err", C_ERR)):
+            self.tree.tag_configure(t, foreground=col, font=ui_font(10, True))
         sb = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -885,6 +932,7 @@ class App(tk.Tk):
                     inner = add(rel, it["children"], True)
                     self.groups[rel] = inner
                     self.tree.item(rel, values=("%d set%s" % (len(inner), "" if len(inner) == 1 else "s"),
+                                                     fmt_mb(sum(self.rows[r]["size"] for r in inner)),
                                                      "", "", "", "", ""))
                     sets += inner
                     continue
@@ -902,7 +950,7 @@ class App(tk.Tk):
                     self.checked.add(rel)
                 models = str(it["models"]) + (" +%d 3MF" % it["mf3"] if it["mf3"] else "")
                 self.tree.insert(parent_iid, "end", iid=rel, values=(
-                    models, "✔" if it["png"] else "—", "✔" if it["prev"] else "—",
+                    models, fmt_mb(it["size"]), "✔" if it["png"] else "—", "✔" if it["prev"] else "—",
                     "✔" if it["zip"] else "—", status, ""))
                 sets.append(rel)
             return sets
@@ -1019,11 +1067,38 @@ class App(tk.Tk):
             tag = "busy"
             if col == "st_render":
                 self.tree.see(name)
+        elif "queued" in both:              # also: rendered, ZIP still waiting
+            tag = "queued"
         elif "✔" in both or "already exists" in both:
             tag = "ok"
         else:
             tag = None
         self.tree.item(name, tags=(tag,) if tag else ())
+        self._colour_groups(name)
+
+    def _colour_groups(self, rel):
+        """Colours the group rows above a set: red if any of their sets had an
+        error, orange while one is being worked on, yellow while some are still
+        queued, green when all that were worked on are done; plain when none of
+        their sets has a status yet."""
+        parts = rel.split("/")
+        for i in range(len(parts) - 1, 0, -1):
+            group = "/".join(parts[:i])
+            if group not in self.groups or not self.tree.exists(group):
+                continue
+            sets = [r for r in self.groups[group] if self.tree.exists(r)]
+            tags = {t for r in sets for t in self.tree.item(r, "tags")}
+            if "err" in tags:
+                tag = "group_err"
+            elif "busy" in tags:
+                tag = "group_busy"
+            elif "queued" in tags:
+                tag = "group_queued"
+            elif "ok" in tags:
+                tag = "group_ok"
+            else:
+                tag = "group"
+            self.tree.item(group, tags=(tag,))
 
     def log_line(self, text, tag=None):
         self.log.configure(state="normal")
@@ -1302,42 +1377,87 @@ class App(tk.Tk):
                   bool(job["render"]), bool(job["zip"]))
 
     def _run_render(self, job, res, on_done):
-        names = job["render"]
-        cmd = [job["blender"], "--background", "--python", RENDER_SCRIPT, "--",
-               "--folder", job["folder"]]
-        cmd += ["--format", job["format"]]
+        """Runs Blender on the sets; if Blender dies, starts a fresh one for the
+        set it died on and the rest. A set that crashes Blender twice is marked
+        and skipped, so one bad set cannot stop the whole run."""
+        names = list(job["render"])
+        base = [job["blender"], "--background", "--python", RENDER_SCRIPT, "--",
+                "--folder", job["folder"]]
+        base += ["--format", job["format"]]
         if job["mode"] == "preview":
-            cmd.append("--preview")
+            base.append("--preview")
         else:
-            cmd += ["--res", job["res"], "--samples", job["samples"], "--engine", job["engine"]]
+            base += ["--res", job["res"], "--samples", job["samples"], "--engine", job["engine"]]
             if not job["both"]:
-                cmd.append("--one-side")
-        for n in names:
-            cmd += ["--only", n]
-        self.emit("log", "> " + " ".join('"%s"' % c if " " in c else c for c in cmd), "head")
+                base.append("--one-side")
 
         flags = 0x08000000 if IS_WIN else 0     # CREATE_NO_WINDOW - no black console window
         env = dict(os.environ, PYTHONUNBUFFERED="1")
-        self.running.wait()     # pressed Pause before Blender even started
-        if self.cancel.is_set():
-            return
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     cwd=job["folder"], creationflags=flags, env=env,
-                                     **self.guard.popen_kwargs())
-        self.guard.adopt(self.proc)
-        if not self.running.is_set():
-            suspend_process(self.proc, True)    # Pause pressed while it was starting
-        try:
-            self._read_blender(job, res, on_done, names)
-        finally:
-            # whatever happened (also an exception while reading its output),
-            # Blender must not outlive this run
-            end_process(self.proc)
-            self.proc = None
-
-    def _read_blender(self, job, res, on_done, names):
-        total = len(names)
         t_start = time.time() - 2
+        done = set()            # sets finished (ok, error or skipped) in any Blender run
+        crashes = {}            # set -> how many times Blender died on it
+        idle_runs = 0           # Blender runs that ended without any progress
+        remaining = names
+        while remaining and not self.cancel.is_set():
+            cmd = list(base)
+            for n in remaining:
+                cmd += ["--only", n]
+            self.emit("log", "> " + " ".join('"%s"' % c if " " in c else c for c in cmd), "head")
+            self.running.wait()     # pressed Pause before Blender even started
+            if self.cancel.is_set():
+                return
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         cwd=job["folder"], creationflags=flags, env=env,
+                                         **self.guard.popen_kwargs())
+            self.guard.adopt(self.proc)
+            if not self.running.is_set():
+                suspend_process(self.proc, True)    # Pause pressed while it was starting
+            try:
+                finished, died_on, code = self._read_blender(
+                    job, res, on_done, remaining, t_start, len(done), len(names))
+            finally:
+                # whatever happened (also an exception while reading its output),
+                # Blender must not outlive this run
+                end_process(self.proc)
+                self.proc = None
+            if self.cancel.is_set():
+                return
+            done |= finished
+            remaining = [n for n in remaining if n not in done]
+            if not remaining:
+                break
+            # Blender ended before all sets were done: it crashed or was killed
+            self.emit("log", "!!! Blender stopped before finishing all sets", "err")
+            if died_on:
+                crashes[died_on] = crashes.get(died_on, 0) + 1
+                if crashes[died_on] >= 2:
+                    res[1] += 1
+                    done.add(died_on)
+                    remaining.remove(died_on)
+                    self.emit("status", died_on, "st_render", "✖ crashed Blender twice")
+                    self.emit("log", "!!! %s crashed Blender twice - skipped" % died_on, "err")
+                    on_done(died_on)            # still zipped
+                else:
+                    self.emit("status", died_on, "st_render", "↻ retrying… (Blender crashed)")
+            idle_runs = idle_runs + 1 if not finished and not died_on else 0
+            if idle_runs >= 2:
+                # Blender dies before it even starts a set - retrying will not help
+                self.emit("log", "!!! Blender keeps stopping before it starts - giving up", "err")
+                break
+            if remaining:
+                self.emit("log", "↻ starting a fresh Blender for the %d remaining set(s)"
+                          % len(remaining), "head")
+        if not self.cancel.is_set():
+            for n in remaining:
+                if n not in done:
+                    res[1] += 1
+                    self.emit("status", n, "st_render", "✖ not rendered")
+        self.emit("prog", "r", None, 1.0, "Blender: finished", "")
+
+    def _read_blender(self, job, res, on_done, names, t_start, offset, grand_total):
+        """Reads one Blender run. Returns (sets finished in this run, the set it
+        was working on when it ended early or None, exit code)."""
+        total = len(names)
         sides = 2 if job["both"] and job["mode"] == "full" else 1
         preview = job["mode"] == "preview"
         picture = {}            # preview mode: set -> "ok" / "none" / "fail" for preview B
@@ -1358,7 +1478,8 @@ class App(tk.Tk):
                 frac = 0.2 + 0.8 * (rend + samp) / sides
                 side = ("side A" if rend == 0 else "side B") if sides == 2 else "render"
                 txt = "%s — %d%%" % (side, samp * 100)
-            self.emit("prog", "r", cur, frac, "Blender [%d/%d]: %s" % (idx, total, cur), txt)
+            self.emit("prog", "r", cur, frac,
+                      "Blender [%d/%d]: %s" % (offset + idx, grand_total, cur), txt)
 
         for raw in self.proc.stdout:
             line = raw.decode("utf-8", errors="replace").rstrip()
@@ -1379,7 +1500,7 @@ class App(tk.Tk):
                     cur = parts[2] if len(parts) > 2 else "?"
                     imp, rend, samp = 0.0, -1, 0.0
                     self.emit("status", cur, "st_render", "rendering…")
-                    self.emit("log", "── Blender [%d/%d] %s" % (idx, total, cur), "head")
+                    self.emit("log", "── Blender [%d/%d] %s" % (offset + idx, grand_total, cur), "head")
                 elif kind == "IMPORT":
                     imp = int(parts[1]) / max(1, int(parts[2]))
                 elif kind == "RENDER":
@@ -1434,20 +1555,9 @@ class App(tk.Tk):
                 tag = "err" if ("ERROR" in line or "Error" in line or "!!!" in line) else None
                 self.emit("log", line, tag)
         code = self.proc.wait()
-        if cur and not self.cancel.is_set():
-            # Blender died in the middle of a folder
-            res[1] += 1
-            finished.add(cur)
-            self.emit("status", cur, "st_render", "✖ Blender aborted")
-        if not self.cancel.is_set():
-            # sets Blender never got to (folder gone, crash before it, ...)
-            for n in names:
-                if n not in finished:
-                    res[1] += 1
-                    self.emit("status", n, "st_render", "✖ not rendered")
         if code != 0 and not self.cancel.is_set():
-            self.emit("log", "!!! Blender exited with code %s" % code, "err")
-        self.emit("prog", "r", None, 1.0, "Blender: finished", "")
+            self.emit("log", "!!! Blender exited: %s" % describe_exit(code), "err")
+        return finished, cur, code
 
     @staticmethod
     def _has_png(root, rel, both, mode="full"):
@@ -1656,10 +1766,10 @@ class App(tk.Tk):
         self.btn_stop.configure(state="disabled")
         for b in self.bars:
             b.running = False
-        busy = ("queued", "rendering…", "zipping…")
         for n in self.rows:
             for col in ("st_render", "st_zip"):
-                if self.tree.set(n, col) in busy:
+                text = self.tree.set(n, col)
+                if text == "queued" or "…" in text:
                     self.set_status(n, col, "stopped")
         parts = []
         r, z = results["render"], results["zip"]

@@ -57,6 +57,21 @@ Two versions:
   "_Vehicles:" header (sub-groups with their full path, "_Vehicles/_Forgeworld:"), then the
   set names one per line, a blank line between blocks; each group once, in list order;
   sets outside groups as a block without a header.
+- **Auto-retry when Blender dies:** `_run_render` loops: `_read_blender` reads one Blender run
+  and returns (finished sets, set it died on, exit code); a fresh Blender is started with
+  `--only` for the set it died on + the rest. Second crash on the same set -> "✖ crashed
+  Blender twice", skipped, still zipped. Two runs in a row without any progress (dies at
+  start) -> give up, rest "✖ not rendered". Stop / cancel never triggers a retry.
+  `describe_exit()` turns exit codes into hints (Windows 0xC0000005 etc., Linux signals).
+  Seen in a real run: Blender died on a 106-model set and all later sets were lost.
+- **Size (MB) column** (between Models and Sheet): `scan_tree()` sums the size of all files
+  in a set folder (`"size"`), `fmt_mb()` formats it ("5 300", "<1"); group rows show the sum.
+  The user's crashing set was 5.3 GB of STL (~100 M triangles) - memory, not a bug.
+- **Row colours** (user's choice): `ok` green = done, `busy` orange (`C_BUSY`) = being worked
+  on, `queued` yellow (`C_QUEUED`) = waiting (also: rendered, ZIP still queued), `err` red,
+  from both status columns in `set_status()` (priority err > busy > queued > ok).
+  `_colour_groups()` colours the `_` group rows above a set with one tag each
+  (`group_ok/busy/queued/err`, same priority).
 - **Pause:** `suspend_process()` freezes Blender (SIGSTOP/SIGCONT, Windows
   NtSuspendProcess/NtResumeProcess); the ZIP thread waits on the `self.running` event
   between 1 MB chunks. Stop while paused must thaw the process first, otherwise it never
