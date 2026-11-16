@@ -740,11 +740,11 @@ class App(tk.Tk):
         cols = ("models", "size", "png", "prev", "zip", "st_render", "st_zip")
         self.tree = ttk.Treeview(tf, columns=cols, show="tree headings", selectmode="none", height=6)
         # tree column: expand arrow + tick + folder name
-        self.tree.heading("#0", text="Folder", anchor="w")
+        self.tree.heading("#0", text="Folder", anchor="w", command=lambda: self.sort_by("#0"))
         self.tree.column("#0", width=300, anchor="w", stretch=True)
         for c, txt, w, anchor, stretch in (
                 ("models", "Models", 80, "center", False),
-                ("size", "Size (MB)", 80, "e", False),
+                ("size", "Size (MB)", 96, "e", False),
                 ("png", "Sheet", 50, "center", False),
                 ("prev", "Preview", 64, "center", False),
                 ("zip", "ZIP", 50, "center", False),
@@ -752,6 +752,12 @@ class App(tk.Tk):
                 ("st_zip", "Zip", 150, "w", True)):
             self.tree.heading(c, text=txt)
             self.tree.column(c, width=w, anchor=anchor, stretch=stretch)
+        # clicking these headers sorts the list (view only - the processing order
+        # comes from the "order" dropdown)
+        self.sort_titles = {"#0": "Folder", "models": "Models", "size": "Size (MB)"}
+        self.sort_state = None          # (column, descending) or None = as scanned
+        for c in ("models", "size"):
+            self.tree.heading(c, command=lambda c=c: self.sort_by(c))
         self.tree.tag_configure("off", foreground=C_DIM)
         self.tree.tag_configure("ok", foreground=C_OK)
         self.tree.tag_configure("err", foreground=C_ERR)
@@ -965,8 +971,59 @@ class App(tk.Tk):
             return sets
 
         add("", nodes, False)
+        if self.sort_state:
+            self._apply_sort()
         self._draw_checks()
         self._update_count()
+
+    # ------------------------------------------------- sorting the list
+    def sort_by(self, col):
+        """Header click: sort by this column; a second click reverses it."""
+        if self.sort_state and self.sort_state[0] == col:
+            self.sort_state = (col, not self.sort_state[1])
+        else:
+            self.sort_state = (col, False)
+        self._apply_sort()
+
+    def _sort_key(self, iid, col):
+        """Value to sort a row by; group rows use the totals of their sets."""
+        inner = self.groups.get(iid)
+        if col == "#0":
+            return iid.split("/")[-1].lower()
+        if col == "models":
+            return sum(self.rows[r]["models"] for r in inner) if inner is not None \
+                else self.rows[iid]["models"]
+        return sum(self.rows[r]["size"] for r in inner) if inner is not None \
+            else self.rows[iid]["size"]
+
+    def _apply_sort(self):
+        col, desc = self.sort_state
+
+        def sort_children(parent):
+            kids = list(self.tree.get_children(parent))
+            # name as the second key, so equal values stay alphabetical
+            kids.sort(key=lambda i: (self._sort_key(i, col), i.lower()), reverse=desc)
+            for idx, iid in enumerate(kids):
+                self.tree.move(iid, parent, idx)
+                if iid in self.groups:
+                    sort_children(iid)
+        sort_children("")
+        for c, title in self.sort_titles.items():
+            arrow = (" ▼" if desc else " ▲") if c == col else ""
+            self.tree.heading(c, text=title + arrow)
+
+    def _visible_order(self):
+        """Set rel paths in the order they are shown (after any header sort)."""
+        out = []
+
+        def walk(parent):
+            for iid in self.tree.get_children(parent):
+                if iid in self.groups:
+                    walk(iid)
+                elif iid in self.rows:
+                    out.append(iid)
+        walk("")
+        return out
 
     def _draw_checks(self):
         """Tick glyphs: sets ☑ / ☐, groups ☑ all, ▣ some, ☐ none of their sets."""
@@ -1013,7 +1070,7 @@ class App(tk.Tk):
         sub-group gets its full path, "_Vehicles/_Forgeworld:"), blocks are
         separated by a blank line. Only writes the file - nothing is rendered
         or zipped."""
-        names = [n for n in self.rows if n in self.checked]
+        names = [n for n in self._visible_order() if n in self.checked]
         if not names:
             messagebox.showinfo("Export list", "Tick at least one folder.")
             return

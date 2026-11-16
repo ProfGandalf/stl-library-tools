@@ -116,6 +116,11 @@ Full Blender output is in the **Log** tab.
 ZIP); a group row shows the sum of its sets. Very large sets (several GB of STL) need a lot
 of memory in Blender - a 5.3 GB set is about 100 million triangles.
 
+**Sorting the list:** click the *Folder*, *Models* or *Size (MB)* header to sort by it, click
+again to reverse (▲ / ▼). Sets are sorted inside their groups; a group sorts by the totals
+of its sets. This only changes the view (and the order of *Export list…*); the processing
+order comes from **Order**.
+
 **Order** sets the sequence in which the ticked sets are rendered and zipped:
 *alphabetical* (default, the order of the list), *smallest first* or *largest first* (by the
 Size column; sets inside `_` groups are sorted together with all others). *Smallest first*
