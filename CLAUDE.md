@@ -52,6 +52,12 @@ Two versions:
   prints a reason and `@@ SKIP missing|nomodels|error <rel>`; the app shows "✖ folder not
   found" / "✖ no model files" / "✖ could not read folder" and still zips the set. Only a set
   with no line at all is "✖ not rendered".
+- **Empty folders are neither rendered nor zipped:** `has_files()` = any file at any
+  depth (only empty subfolders = empty). `start()` re-checks it for the ticked sets (the
+  scan may be stale) and keeps empty ones out of the render list -> render status
+  "— empty folder" (files but no models: "— no models"). `_zip_worker` checks it again
+  before packing -> "— empty folder" (no row colour), a log line, its own count in the
+  summary ("N empty (not zipped)"). An old ZIP next to an empty folder is left alone.
 - **Export list…** (button next to "Without ZIP"): writes the ticked sets to a chosen `.txt`
   (default `selected_folders.txt` in the models folder), grouped as the user asked: a
   "_Vehicles:" header (sub-groups with their full path, "_Vehicles/_Forgeworld:"), then the

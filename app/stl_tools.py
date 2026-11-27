@@ -362,6 +362,15 @@ def split_rel(root, rel):
     return os.path.join(root, *parts[:-1]), parts[-1]
 
 
+def has_files(folder):
+    """True if the folder holds at least one file at any depth. A folder with
+    only empty subfolders counts as empty (it is not zipped)."""
+    for _root, _dirs, files in os.walk(folder):
+        if files:
+            return True
+    return False
+
+
 def scan_tree(root):
     """Returns the folder tree under root as a list of nodes:
       {"kind": "group", "rel", "name", "children": [...]}   folder starting with _
@@ -1272,7 +1281,11 @@ class App(tk.Tk):
         if not names:
             messagebox.showinfo("Nothing to do", "Tick at least one folder.")
             return
-        render_names = [n for n in names if self.rows[n]["models"] > 0]
+        # empty folders (no files at all) are neither rendered nor zipped; checked
+        # again now, the list may be older than the folders
+        empty = {n for n in names
+                 if not has_files(os.path.join(folder, *n.split("/")))}
+        render_names = [n for n in names if self.rows[n]["models"] > 0 and n not in empty]
         # without "overwrite existing images" a folder that already has its sheet(s)
         # is not sent to Blender at all - no import, no render (it is still zipped)
         png_kept = []
@@ -1311,7 +1324,8 @@ class App(tk.Tk):
             elif n in png_kept:
                 self.set_status(n, "st_render", "already exists")
             elif do_render:
-                self.set_status(n, "st_render", "—")
+                self.set_status(n, "st_render", "— empty folder" if n in empty
+                                else "— no models")
             self.set_status(n, "st_zip", "queued" if do_zip else "")
         # overall progress: each folder is the sum of its parts (render weighs more)
         self.parts = {}
@@ -1415,7 +1429,7 @@ class App(tk.Tk):
         """Pipeline: Blender renders folders one by one, and every finished
         folder goes straight to the ZIP queue. Zipping runs in a separate
         thread, so folder 1 is zipped while Blender already renders folder 2."""
-        results = {"render": [0, 0], "zip": [0, 0, 0]}
+        results = {"render": [0, 0], "zip": [0, 0, 0, 0]}   # zip: ok, exists, err, empty
         t0 = time.time()
         zip_q = queue.Queue()
         zipper = None
@@ -1681,6 +1695,12 @@ class App(tk.Tk):
             label = "ZIP [%d/%d]: %s" % (k, total, name)
             parent, base = split_rel(root, name)       # name is the set's rel path
             dst = os.path.join(parent, base + ".zip")
+            if not has_files(os.path.join(parent, base)):
+                res[3] += 1             # nothing to pack - no empty archive
+                self.emit("status", name, "st_zip", "— empty folder")
+                self.emit("prog", "z", name, 1.0, label, "empty folder, skipped")
+                self.emit("log", "[=] not zipped, the folder has no files: %s" % name)
+                continue
             if os.path.exists(dst) and not job["overwrite_zip"]:
                 res[1] += 1
                 self.emit("status", name, "st_zip", "already exists")
@@ -1852,8 +1872,9 @@ class App(tk.Tk):
                 r[0], ", %d skipped (image exists)" % self.png_kept if self.png_kept else "",
                 ", %d errors" % r[1] if r[1] else ""))
         if did_zip:
-            parts.append("ZIP: %d zipped, %d skipped%s" % (
-                z[0], z[1], ", %d errors" % z[2] if z[2] else ""))
+            parts.append("ZIP: %d zipped, %d skipped%s%s" % (
+                z[0], z[1], ", %d empty (not zipped)" % z[3] if z[3] else "",
+                ", %d errors" % z[2] if z[2] else ""))
         summary = " · ".join(parts)
         errors = r[1] + z[2]
         if cancelled:
