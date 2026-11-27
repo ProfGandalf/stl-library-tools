@@ -103,8 +103,10 @@ The app can live anywhere. It does not need to be copied into the models folder.
    Folders go one by one: Blender renders
    folder 1, and when it is done, folder 1 is zipped while Blender already renders
    folder 2, and so on. Folders without models are zipped right away. **Empty folders**
-   (no files at all, also when they only hold empty subfolders) are not zipped: the ZIP
-   status shows *— empty folder* and no archive is written.
+   (no files at all, also when they only hold empty subfolders) are neither rendered nor
+   zipped: both status columns show *— empty folder*, Blender is not started for them and
+   no archive is written. A folder with files but no models shows *— no models* for the
+   render and is still zipped.
 5. **Start.** The top bar shows overall progress and the estimated time left. Below it
    are two bars side by side: Blender (import, side A, side B) and ZIP (megabytes).
    **Pause** freezes everything in place: Blender is suspended mid-render (it keeps its

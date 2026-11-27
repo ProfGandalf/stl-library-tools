@@ -1281,7 +1281,11 @@ class App(tk.Tk):
         if not names:
             messagebox.showinfo("Nothing to do", "Tick at least one folder.")
             return
-        render_names = [n for n in names if self.rows[n]["models"] > 0]
+        # empty folders (no files at all) are neither rendered nor zipped; checked
+        # again now, the list may be older than the folders
+        empty = {n for n in names
+                 if not has_files(os.path.join(folder, *n.split("/")))}
+        render_names = [n for n in names if self.rows[n]["models"] > 0 and n not in empty]
         # without "overwrite existing images" a folder that already has its sheet(s)
         # is not sent to Blender at all - no import, no render (it is still zipped)
         png_kept = []
@@ -1320,7 +1324,8 @@ class App(tk.Tk):
             elif n in png_kept:
                 self.set_status(n, "st_render", "already exists")
             elif do_render:
-                self.set_status(n, "st_render", "—")
+                self.set_status(n, "st_render", "— empty folder" if n in empty
+                                else "— no models")
             self.set_status(n, "st_zip", "queued" if do_zip else "")
         # overall progress: each folder is the sum of its parts (render weighs more)
         self.parts = {}
